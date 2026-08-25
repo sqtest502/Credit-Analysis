@@ -147,11 +147,15 @@ export const analyzeWorkbook = async (
     cellDates: true,
     raw: true,
   });
-  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!firstSheet) throw new AnalysisError('The workbook does not contain a readable first sheet.');
+  const orderLogSheetName = workbook.SheetNames.find((name) =>
+    name.trim().toLowerCase().startsWith('orderlog'),
+  );
+  const sourceSheetName = orderLogSheetName ?? workbook.SheetNames[0];
+  const sourceSheet = sourceSheetName ? workbook.Sheets[sourceSheetName] : undefined;
+  if (!sourceSheet) throw new AnalysisError('The workbook does not contain a readable worksheet.');
 
-  const sourceRows = toRows(firstSheet);
-  const headerMatrix = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1, defval: null, raw: true });
+  const sourceRows = toRows(sourceSheet);
+  const headerMatrix = XLSX.utils.sheet_to_json<unknown[]>(sourceSheet, { header: 1, defval: null, raw: true });
   const rawHeaders = headerMatrix[0] ?? Object.keys(sourceRows[0] ?? {});
   const headers = rawHeaders.map(asCleanHeader);
   const missing = REQUIRED_COLUMNS.filter((column) => !headers.includes(column));

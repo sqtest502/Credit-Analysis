@@ -135,7 +135,7 @@ function EmptyState({ onPick }: { onPick: () => void }) {
         <span className="mt-5 rounded-md bg-[hsl(var(--secondary))] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--muted-foreground))]">.xlsx · .xls · .csv</span>
       </button>
       <div className="mt-10 grid max-w-3xl gap-3 sm:grid-cols-3">
-        <MiniContract icon={Database} label="Input" value="First worksheet" />
+        <MiniContract icon={Database} label="Input" value="OrderLog worksheet" />
         <MiniContract icon={Table2} label="Required fields" value="4 columns" />
         <MiniContract icon={ShieldCheck} label="Data handling" value="Local only" />
       </div>
