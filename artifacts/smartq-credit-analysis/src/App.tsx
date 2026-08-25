@@ -266,8 +266,19 @@ function Home() {
 
   const handleFile = async (file?: File) => {
     if (!file) return;
-    const validExtension = /\.(xlsx|xls)$/i.test(file.name);
-    if (!validExtension) {
+    const normalizedName = file.name.trim().toLowerCase().split(/[?#]/, 1)[0];
+    const excelMimeTypes = new Set([
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/octet-stream',
+    ]);
+    const hasExcelExtension = /\.(xlsx|xls)$/.test(normalizedName);
+    const hasExcelMime = excelMimeTypes.has(file.type.toLowerCase());
+
+    // Some upload sources omit the filename extension and browsers often report
+    // Excel files as application/octet-stream. Let those files through so the
+    // workbook parser can make the final determination.
+    if (!hasExcelExtension && !hasExcelMime && file.type) {
       setFilename(file.name);
       setStatus('invalid');
       setErrorMessage('SmartQ only accepts Excel workbooks with an .xlsx or .xls extension.');
