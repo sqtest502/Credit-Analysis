@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SmartQ Credit Analysis"
+description = "An Excel upload and sanity-test app for weekly credit reports. It validates the required columns, cleans dates and credits, calculates daily and user-level metrics, highlights audit exceptions, and exports a multi-sheet analysis workbook."
+version = "1.0.0"
+id = "artifacts/smartq-credit-analysis"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21538
+
+[services.development]
+run = "pnpm --filter @workspace/smartq-credit-analysis run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/smartq-credit-analysis", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/smartq-credit-analysis/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21538"
+BASE_PATH = "/"
