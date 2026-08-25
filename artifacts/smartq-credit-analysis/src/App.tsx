@@ -132,7 +132,7 @@ function EmptyState({ onPick }: { onPick: () => void }) {
         <div className="grid size-14 place-items-center rounded-2xl bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))] transition-transform group-hover:-translate-y-1"><UploadCloud size={26} strokeWidth={1.8} /></div>
         <p className="mt-5 font-display text-[19px] font-semibold">Choose a weekly report</p>
         <p className="mt-2 text-[13px] text-[hsl(var(--muted-foreground))]">or drag and drop it here</p>
-        <span className="mt-5 rounded-md bg-[hsl(var(--secondary))] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--muted-foreground))]">.xlsx · .xls</span>
+        <span className="mt-5 rounded-md bg-[hsl(var(--secondary))] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--muted-foreground))]">.xlsx · .xls · .csv</span>
       </button>
       <div className="mt-10 grid max-w-3xl gap-3 sm:grid-cols-3">
         <MiniContract icon={Database} label="Input" value="First worksheet" />
@@ -172,7 +172,7 @@ function InvalidState({ message, missingColumns, onRetry }: { message: string; m
         <h1 className="mt-2 font-display text-3xl font-bold tracking-[-.04em]">This report needs a closer look.</h1>
         <p className="mt-3 text-[14px] leading-6 text-[hsl(var(--muted-foreground))]">{message}</p>
         {missingColumns.length > 0 && <div className="mt-6 rounded-xl bg-[hsl(var(--destructive)/.06)] p-4"><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--destructive))]">Missing required columns</p><div className="mt-3 flex flex-wrap gap-2">{missingColumns.map((column) => <span key={column} className="rounded-md border border-[hsl(var(--destructive)/.2)] px-2.5 py-1 text-[12px] font-semibold">{column}</span>)}</div></div>}
-        <div className="mt-8 flex flex-wrap gap-3"><button type="button" onClick={onRetry} data-testid="button-retry-upload" className="flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-semibold text-[hsl(var(--primary-foreground))] transition-transform hover:-translate-y-px"><RefreshCw size={15} /> Try another file</button><div className="flex items-center gap-2 text-[12px] text-[hsl(var(--muted-foreground))]"><Info size={14} /> Accepted: .xlsx or .xls</div></div>
+        <div className="mt-8 flex flex-wrap gap-3"><button type="button" onClick={onRetry} data-testid="button-retry-upload" className="flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-semibold text-[hsl(var(--primary-foreground))] transition-transform hover:-translate-y-px"><RefreshCw size={15} /> Try another file</button><div className="flex items-center gap-2 text-[12px] text-[hsl(var(--muted-foreground))]"><Info size={14} /> Accepted: .xlsx, .xls, or .csv</div></div>
       </div>
     </section>
   );
@@ -272,16 +272,18 @@ function Home() {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/octet-stream',
     ]);
+    const hasCsvExtension = /\.csv$/.test(normalizedName);
+    const hasCsvMime = file.type.toLowerCase() === 'text/csv';
     const hasExcelExtension = /\.(xlsx|xls)$/.test(normalizedName);
     const hasExcelMime = excelMimeTypes.has(file.type.toLowerCase());
 
     // Some upload sources omit the filename extension and browsers often report
     // Excel files as application/octet-stream. Let those files through so the
     // workbook parser can make the final determination.
-    if (!hasExcelExtension && !hasExcelMime && file.type) {
+    if (!hasExcelExtension && !hasExcelMime && !hasCsvExtension && !hasCsvMime && file.type) {
       setFilename(file.name);
       setStatus('invalid');
-      setErrorMessage('SmartQ only accepts Excel workbooks with an .xlsx or .xls extension.');
+      setErrorMessage('SmartQ accepts Excel workbooks and CSV files with .xlsx, .xls, or .csv formats.');
       setMissingColumns([]);
       return;
     }
@@ -289,7 +291,11 @@ function Home() {
     setStatus('parsing');
     setErrorMessage('');
     try {
-      const analysis = await analyzeWorkbook(await file.arrayBuffer());
+      const isCsv = hasCsvExtension || hasCsvMime;
+      const analysis = await analyzeWorkbook(
+        isCsv ? await file.text() : await file.arrayBuffer(),
+        isCsv ? 'csv' : 'excel',
+      );
       setResult(analysis);
       setStatus('success');
     } catch (error) {
@@ -329,7 +335,7 @@ function Home() {
     <AppShell>
       <MobileHeader />
       <TopBar filename={filename} onReset={reset} onDownload={download} canDownload={status === 'success'} />
-      <input ref={inputRef} onChange={onFileChange} type="file" accept=".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" data-testid="input-file-upload" />
+      <input ref={inputRef} onChange={onFileChange} type="file" accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" data-testid="input-file-upload" />
       {status === 'empty' && <div onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop} className={dragging ? 'bg-[hsl(var(--primary)/.04)]' : ''}><EmptyState onPick={() => inputRef.current?.click()} /></div>}
       {status === 'parsing' && filename && <ParsingState filename={filename} />}
       {status === 'invalid' && <InvalidState message={errorMessage} missingColumns={missingColumns} onRetry={() => { reset(); setTimeout(() => inputRef.current?.click(), 0); }} />}

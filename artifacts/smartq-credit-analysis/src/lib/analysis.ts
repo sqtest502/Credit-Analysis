@@ -138,8 +138,15 @@ const unique = (values: string[]) => new Set(values).size;
 const toRows = (sheet: XLSX.WorkSheet) =>
   XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true });
 
-export const analyzeWorkbook = async (buffer: ArrayBuffer): Promise<AnalysisResult> => {
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, raw: true });
+export const analyzeWorkbook = async (
+  input: ArrayBuffer | string,
+  format: 'excel' | 'csv' = 'excel',
+): Promise<AnalysisResult> => {
+  const workbook = XLSX.read(input, {
+    type: format === 'csv' ? 'string' : 'array',
+    cellDates: true,
+    raw: true,
+  });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!firstSheet) throw new AnalysisError('The workbook does not contain a readable first sheet.');
 
