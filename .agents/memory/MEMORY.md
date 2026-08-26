@@ -1,0 +1,1 @@
+- [SmartQ report formats](smartq-report-formats.md) — SmartQ exports can be detailed OrderLog rows or aggregated Email ID/points summaries.

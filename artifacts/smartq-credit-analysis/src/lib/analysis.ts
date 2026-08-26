@@ -60,6 +60,8 @@ export type WeekdayMetric = {
 export type AnalysisResult = {
   sourceRows: number;
   sourceColumns: number;
+  sourceMode: 'order-log' | 'summary';
+  notices: string[];
   rawData: CleanRow[];
   userDaily: UserDailyRow[];
   dailyMetrics: DailyMetric[];
@@ -141,6 +143,7 @@ const toRows = (sheet: XLSX.WorkSheet) =>
 export const analyzeWorkbook = async (
   input: ArrayBuffer | string,
   format: 'excel' | 'csv' = 'excel',
+  sourceName = '',
 ): Promise<AnalysisResult> => {
   const workbook = XLSX.read(input, {
     type: format === 'csv' ? 'string' : 'array',
@@ -158,19 +161,37 @@ export const analyzeWorkbook = async (
   const headerMatrix = XLSX.utils.sheet_to_json<unknown[]>(sourceSheet, { header: 1, defval: null, raw: true });
   const rawHeaders = headerMatrix[0] ?? Object.keys(sourceRows[0] ?? {});
   const headers = rawHeaders.map(asCleanHeader);
-  const missing = REQUIRED_COLUMNS.filter((column) => !headers.includes(column));
+  const summaryUserColumn = headers.find((header) => header.toLowerCase() === 'email id');
+  const summaryCreditsColumn = headers.find((header) => header.toLowerCase() === 'sum of points');
+  const isSummary = Boolean(summaryUserColumn && summaryCreditsColumn && headers.includes('User Type') && !headers.includes('Date'));
+  const missing = isSummary
+    ? []
+    : REQUIRED_COLUMNS.filter((column) => !headers.includes(column));
   if (missing.length) {
     throw new AnalysisError(`Required columns are missing: ${missing.join(', ')}`, missing);
   }
 
+  const summaryDateMatch = sourceName.match(/orderlog[_-].*?(\d{1,2})[_-](\d{1,2})[_-](\d{4})(?:[_-]|$)/i);
+  const summaryDate = summaryDateMatch
+    ? fromDateParts(Number(summaryDateMatch[3]), Number(summaryDateMatch[2]), Number(summaryDateMatch[1]))
+    : null;
+  const notices = isSummary
+    ? [
+        summaryDate
+          ? `Summary format detected. The report date ${formatDate(summaryDate)} was taken from the filename because this file has no Date column.`
+          : 'Summary format detected. This file has no Date column, so date-based metrics are unavailable.',
+        'Email ID was used as User and Sum of Points was used as Credits.',
+      ]
+    : [];
+
   const rawData: CleanRow[] = sourceRows.map((source) => {
     const row: Record<string, unknown> = {};
     Object.entries(source).forEach(([key, value]) => { row[asCleanHeader(key)] = value; });
-    const date = cleanDate(row.Date);
-    row.User = String(row.User ?? '').trim();
+    const date = isSummary ? summaryDate : cleanDate(row.Date);
+    row.User = String(isSummary ? row[summaryUserColumn!] : row.User ?? '').trim();
     row['User Type'] = String(row['User Type'] ?? '').trim();
     row.Date = date;
-    row.Credits = cleanCredits(row.Credits);
+    row.Credits = cleanCredits(isSummary ? row[summaryCreditsColumn!] : row.Credits);
     row['Week Day'] = date ? weekday(date) : '';
     return row as CleanRow;
   });
@@ -264,6 +285,8 @@ export const analyzeWorkbook = async (
   return {
     sourceRows: rawData.length,
     sourceColumns: headers.length,
+    sourceMode: isSummary ? 'summary' : 'order-log',
+    notices,
     rawData,
     userDaily,
     dailyMetrics,

@@ -204,6 +204,7 @@ function Overview({ result, onJump }: { result: AnalysisResult; onJump: (target:
           <div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[hsl(var(--primary))]">Weekly signal</p><h1 className="mt-2 font-display text-[clamp(2rem,4vw,3.4rem)] font-bold leading-[1] tracking-[-.055em]">A clear read on<br /><span className="text-[hsl(var(--primary))]">credit behaviour.</span></h1><p className="mt-4 max-w-xl text-[14px] leading-6 text-[hsl(var(--muted-foreground))]">Cleaned from {numeric(result.sourceRows)} rows across {numeric(result.sourceColumns)} columns. Review the exceptions first, then use the workbook as your audit trail.</p></div>
           <div className="flex shrink-0 items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.7)] px-3 py-2 text-[11px] text-[hsl(var(--muted-foreground))]"><CheckCircle2 size={15} className="text-[hsl(var(--primary))]" /> Analysis complete</div>
         </div>
+        {result.notices.length > 0 && <div data-testid="status-format-notice" className="mt-7 space-y-2 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.1)] px-4 py-3.5 text-[12px] leading-5 text-[hsl(var(--foreground)/.8)]">{result.notices.map((notice, index) => <div key={notice} className="flex items-start gap-3"><Info size={16} className="mt-0.5 shrink-0 text-[hsl(var(--accent-foreground))]" /><span data-testid={`text-format-notice-${index}`}>{notice}</span></div>)}</div>}
         {result.invalidDates > 0 && <div data-testid="status-invalid-dates" className="mt-7 flex items-start gap-3 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.1)] px-4 py-3.5 text-[12px] leading-5 text-[hsl(var(--foreground)/.8)]"><Info size={16} className="mt-0.5 shrink-0 text-[hsl(var(--accent-foreground))]" /><span><strong>{numeric(result.invalidDates)} rows</strong> have an invalid or missing Date and were excluded from date-based metrics.</span></div>}
         <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <KpiCard label="Total users" value={numeric(result.totalUsers)} note="Distinct users in file" testId="metric-total-users" />
@@ -295,6 +296,7 @@ function Home() {
       const analysis = await analyzeWorkbook(
         isCsv ? await file.text() : await file.arrayBuffer(),
         isCsv ? 'csv' : 'excel',
+        file.name,
       );
       setResult(analysis);
       setStatus('success');
