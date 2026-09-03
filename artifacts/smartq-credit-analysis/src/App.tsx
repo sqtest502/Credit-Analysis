@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowDownToLine,
   ArrowRight,
+  Building2,
   Check,
   CheckCircle2,
   Database,
@@ -28,16 +29,18 @@ import {
   formatNumber,
   type AnalysisResult,
   type DailyMetric,
+  type FoodcourtMetric,
   type UserDailyRow,
   type WeekdayMetric,
 } from '@/lib/analysis';
 
 type ProcessState = 'empty' | 'parsing' | 'success' | 'invalid';
-type ViewKey = 'overview' | 'daily' | 'users' | 'audit' | 'weekday';
+type ViewKey = 'overview' | 'daily' | 'foodcourts' | 'users' | 'audit' | 'weekday';
 
 const navItems: { key: ViewKey; label: string; icon: typeof Layers3; target: string }[] = [
   { key: 'overview', label: 'Overview', icon: Layers3, target: 'overview-section' },
   { key: 'daily', label: 'Daily metrics', icon: Table2, target: 'daily-section' },
+  { key: 'foodcourts', label: 'Foodcourt validation', icon: Building2, target: 'foodcourt-section' },
   { key: 'users', label: 'User metrics', icon: Files, target: 'users-section' },
   { key: 'audit', label: 'Audit queue', icon: AlertTriangle, target: 'audit-section' },
   { key: 'weekday', label: 'Weekday summary', icon: History, target: 'weekday-section' },
@@ -191,7 +194,7 @@ function DataTable({ headers, rows, emptyText, testId }: { headers: string[]; ro
 }
 
 function AuditTable({ rows, emptyText, testId }: { rows: UserDailyRow[]; emptyText: string; testId: string }) {
-  return <DataTable testId={testId} emptyText={emptyText} headers={['Date', 'User', 'User type', 'Daily credits', 'Status']} rows={rows.map((row) => [formatDate(row.Date), row.User || 'Unnamed user', row['User Type'] || '—', numeric(row['Daily User Credits']), 'REVIEW'])} />;
+  return <DataTable testId={testId} emptyText={emptyText} headers={['Date', 'Foodcourt', 'User', 'User type', 'Daily credits', 'Status']} rows={rows.map((row) => [formatDate(row.Date), row.Foodcourt, row.User || 'Unnamed user', row['User Type'] || '—', numeric(row['Daily User Credits']), 'REVIEW'])} />;
 }
 
 function Overview({ result, onJump }: { result: AnalysisResult; onJump: (target: string) => void }) {
@@ -206,10 +209,11 @@ function Overview({ result, onJump }: { result: AnalysisResult; onJump: (target:
         </div>
         {result.notices.length > 0 && <div data-testid="status-format-notice" className="mt-7 space-y-2 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.1)] px-4 py-3.5 text-[12px] leading-5 text-[hsl(var(--foreground)/.8)]">{result.notices.map((notice, index) => <div key={notice} className="flex items-start gap-3"><Info size={16} className="mt-0.5 shrink-0 text-[hsl(var(--accent-foreground))]" /><span data-testid={`text-format-notice-${index}`}>{notice}</span></div>)}</div>}
         {result.invalidDates > 0 && <div data-testid="status-invalid-dates" className="mt-7 flex items-start gap-3 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.1)] px-4 py-3.5 text-[12px] leading-5 text-[hsl(var(--foreground)/.8)]"><Info size={16} className="mt-0.5 shrink-0 text-[hsl(var(--accent-foreground))]" /><span><strong>{numeric(result.invalidDates)} rows</strong> have an invalid or missing Date and were excluded from date-based metrics.</span></div>}
-        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <KpiCard label="Total users" value={numeric(result.totalUsers)} note="Distinct users in file" testId="metric-total-users" />
           <KpiCard label="Credit users" value={numeric(result.creditUsers)} note="Users with credits > 0" testId="metric-credit-users" />
           <KpiCard label="Total credits" value={numeric(result.totalCredits)} note="Across all source rows" testId="metric-total-credits" />
+          <KpiCard label="Foodcourts" value={numeric(result.foodcourtCount)} note="Locations detected" testId="metric-foodcourts" />
           <KpiCard label="Users >200" value={numeric(new Set(result.over200.map((row) => row.User)).size)} note="Daily threshold exceptions" tone={result.over200.length ? 'warning' : 'default'} testId="metric-over-200" />
           <KpiCard label="Vendor credit users" value={numeric(new Set(result.vendorCreditUsers.map((row) => row.User)).size)} note="VendorNoCredit with usage" tone={result.vendorCreditUsers.length ? 'warning' : 'default'} testId="metric-vendor-users" />
         </div>
@@ -228,15 +232,51 @@ function Overview({ result, onJump }: { result: AnalysisResult; onJump: (target:
 }
 
 function UsersSection({ result }: { result: AnalysisResult }) {
-  return <section id="users-section" className="mt-14 scroll-mt-28"><SectionHeading id="users-heading" eyebrow="Who is using credit" title="User metrics" count={`${result.userMetrics.length} users`} /><DataTable testId="table-user-metrics" emptyText="No user metrics are available." headers={['User', 'User type', 'Days used', 'Total credits', 'Max / day', '>200 days', 'Vendor days', 'Avg / day']} rows={result.userMetrics.map((row) => [row.User || 'Unnamed user', row['User Type'] || '—', row['Days Used'], numeric(row['Total Credits']), numeric(row['Max Credits/Day']), row['>200 Days'], row['Vendor Credit Days'], numeric(row['Avg Credits/Day'])])} /></section>;
+  return <section id="users-section" className="mt-14 scroll-mt-28"><SectionHeading id="users-heading" eyebrow="Who is using credit" title="User metrics" count={`${result.userMetrics.length} user / court records`} /><DataTable testId="table-user-metrics" emptyText="No user metrics are available." headers={['User', 'Foodcourt', 'User type', 'Days used', 'Total credits', 'Max / day', '>200 days', 'Vendor days', 'Avg / day']} rows={result.userMetrics.map((row) => [row.User || 'Unnamed user', row.Foodcourt, row['User Type'] || '—', row['Days Used'], numeric(row['Total Credits']), numeric(row['Max Credits/Day']), row['>200 Days'], row['Vendor Credit Days'], numeric(row['Avg Credits/Day'])])} /></section>;
+}
+
+function FoodcourtSection({ result }: { result: AnalysisResult }) {
+  const [selectedFoodcourt, setSelectedFoodcourt] = useState('all');
+  const visibleMetrics = selectedFoodcourt === 'all'
+    ? result.foodcourtMetrics
+    : result.foodcourtMetrics.filter((row) => row.Foodcourt === selectedFoodcourt);
+  const reviewCount = visibleMetrics.filter((row) => row['Validation Status'] === 'REVIEW').length;
+
+  return (
+    <section id="foodcourt-section" className="mt-14 scroll-mt-28">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <SectionHeading id="foodcourt-heading" eyebrow="Validate by location" title="Foodcourt validation" count={`${result.foodcourtCount} locations`} />
+        <label className="flex items-center gap-2 text-[11px] text-[hsl(var(--muted-foreground))]">
+          <span className="font-mono text-[10px] uppercase tracking-[.12em]">View</span>
+          <select value={selectedFoodcourt} onChange={(event) => setSelectedFoodcourt(event.target.value)} data-testid="select-foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] outline-none focus:border-[hsl(var(--primary)/.5)]">
+            <option value="all">All foodcourts</option>
+            {result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}
+          </select>
+        </label>
+      </div>
+      <p className="mb-5 max-w-2xl text-[13px] leading-6 text-[hsl(var(--muted-foreground))]">Each location is validated independently, so a Bengaluru, Hyderabad, or Chennai issue can be isolated without searching through the full user population.</p>
+      <div className={`mb-4 rounded-xl border px-4 py-3 text-[12px] ${reviewCount ? 'border-[hsl(var(--accent)/.52)] bg-[hsl(var(--accent)/.12)]' : 'border-[hsl(var(--primary)/.2)] bg-[hsl(var(--primary)/.07)]'}`} data-testid="status-foodcourt-validation">
+        {reviewCount ? <span><strong>{numeric(reviewCount)} {reviewCount === 1 ? 'foodcourt needs' : 'foodcourts need'} review</strong> in this view. Open the audit queue to see the exact users and dates.</span> : <span><strong>All foodcourts are clear</strong> in this view. No over-200 or VendorNoCredit usage flags were found.</span>}
+      </div>
+      <DataTable
+        testId="table-foodcourt-metrics"
+        emptyText="No foodcourt data is available."
+        headers={['Foodcourt', 'Active days', 'Users', 'Credit users', 'Credits', 'Avg / user', 'Users >200', 'Vendor users', 'Review rows', 'Orders', 'Status']}
+        rows={visibleMetrics.map((row: FoodcourtMetric) => [row.Foodcourt, row['Active Days'], row['Total Users'], row['Credit Users'], numeric(row['Total Credits']), numeric(row['Avg Credit/User']), row['Users >200'], row['Vendor Credit Users'], row['Review Rows'], row['Total Orders'], row['Validation Status']])}
+      />
+    </section>
+  );
 }
 
 function AuditSection({ result }: { result: AnalysisResult }) {
   const [search, setSearch] = useState('');
-  const matches = (row: UserDailyRow) => `${row.User} ${row['User Type']} ${row['Week Day']}`.toLowerCase().includes(search.toLowerCase());
+  const [foodcourt, setFoodcourt] = useState('all');
+  const matches = (row: UserDailyRow) =>
+    (foodcourt === 'all' || row.Foodcourt === foodcourt) &&
+    `${row.Foodcourt} ${row.User} ${row['User Type']} ${row['Week Day']}`.toLowerCase().includes(search.toLowerCase());
   const over200 = result.over200.filter(matches);
   const vendor = result.vendorCreditUsers.filter(matches);
-  return <section id="audit-section" className="mt-14 scroll-mt-28"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><SectionHeading id="audit-heading" eyebrow="Exceptions first" title="Audit queue" count={`${result.over200.length + result.vendorCreditUsers.length} flags`} /><div className="relative -mt-3 sm:mt-0"><Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-[hsl(var(--muted-foreground))]" /><input value={search} onChange={(event) => setSearch(event.target.value)} data-testid="input-audit-search" aria-label="Filter audit queue" placeholder="Filter users…" className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] py-2 pl-9 pr-3 text-[12px] outline-none transition-colors placeholder:text-[hsl(var(--muted-foreground)/.7)] focus:border-[hsl(var(--primary)/.5)] sm:w-48" /></div></div><div className="grid gap-5 xl:grid-cols-2"><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--accent))]" /><h3 className="text-[13px] font-semibold">Over 200 credits in a day</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{over200.length}</span></div><AuditTable testId="table-over-200" rows={over200} emptyText={search ? 'No matching threshold exceptions.' : 'No users exceeded 200 credits.'} /></div><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--destructive))]" /><h3 className="text-[13px] font-semibold">VendorNoCredit with usage</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{vendor.length}</span></div><AuditTable testId="table-vendor-credit" rows={vendor} emptyText={search ? 'No matching vendor exceptions.' : 'No VendorNoCredit users used credits.'} /></div></div></section>;
+  return <section id="audit-section" className="mt-14 scroll-mt-28"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><SectionHeading id="audit-heading" eyebrow="Exceptions first" title="Audit queue" count={`${result.over200.length + result.vendorCreditUsers.length} flags`} /><div className="flex flex-col gap-2 sm:flex-row"><select value={foodcourt} onChange={(event) => setFoodcourt(event.target.value)} data-testid="select-audit-foodcourt" aria-label="Filter audit queue by foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] outline-none focus:border-[hsl(var(--primary)/.5)]"><option value="all">All foodcourts</option>{result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}</select><div className="relative"><Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-[hsl(var(--muted-foreground))]" /><input value={search} onChange={(event) => setSearch(event.target.value)} data-testid="input-audit-search" aria-label="Filter audit queue" placeholder="Filter users…" className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] py-2 pl-9 pr-3 text-[12px] outline-none transition-colors placeholder:text-[hsl(var(--muted-foreground)/.7)] focus:border-[hsl(var(--primary)/.5)] sm:w-48" /></div></div></div><div className="grid gap-5 xl:grid-cols-2"><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--accent))]" /><h3 className="text-[13px] font-semibold">Over 200 credits in a day</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{over200.length}</span></div><AuditTable testId="table-over-200" rows={over200} emptyText={search || foodcourt !== 'all' ? 'No matching threshold exceptions.' : 'No users exceeded 200 credits.'} /></div><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--destructive))]" /><h3 className="text-[13px] font-semibold">VendorNoCredit with usage</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{vendor.length}</span></div><AuditTable testId="table-vendor-credit" rows={vendor} emptyText={search || foodcourt !== 'all' ? 'No matching vendor exceptions.' : 'No VendorNoCredit users used credits.'} /></div></div></section>;
 }
 
 function WeekdaySection({ result }: { result: AnalysisResult }) {
@@ -244,7 +284,7 @@ function WeekdaySection({ result }: { result: AnalysisResult }) {
 }
 
 function SuccessView({ result, onJump }: { result: AnalysisResult; onJump: (target: string) => void }) {
-  return <main data-testid="status-success" className="mx-auto max-w-[1300px] px-5 pb-24 pt-9 md:px-10 md:pt-12"><Overview result={result} onJump={onJump} /><UsersSection result={result} /><AuditSection result={result} /><WeekdaySection result={result} /><div className="mt-14 flex flex-col justify-between gap-5 rounded-2xl bg-[hsl(var(--sidebar))] p-6 text-[hsl(var(--sidebar-foreground))] sm:flex-row sm:items-center md:p-8"><div><div className="flex items-center gap-2 text-[hsl(var(--accent))]"><ArrowDownToLine size={17} /><p className="font-mono text-[10px] uppercase tracking-[.18em]">Take it with you</p></div><h2 className="mt-3 font-display text-2xl font-bold tracking-[-.03em]">Your audit trail is ready.</h2><p className="mt-2 max-w-lg text-[13px] leading-5 text-[hsl(var(--sidebar-foreground)/.58)]">The workbook includes every metric, audit view, cleaned dataset, and populated weekday sheet.</p></div><button type="button" onClick={() => onJump('download')} data-testid="button-download-footer" className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[hsl(var(--accent))] px-4 py-3 text-[13px] font-bold text-[hsl(var(--accent-foreground))] transition-transform hover:-translate-y-px">Download workbook <ArrowDownToLine size={15} /></button></div><div id="download" className="pt-6 text-center font-mono text-[10px] uppercase tracking-[.13em] text-[hsl(var(--muted-foreground))]">Processed locally · Nothing leaves this browser</div></main>;
+  return <main data-testid="status-success" className="mx-auto max-w-[1300px] px-5 pb-24 pt-9 md:px-10 md:pt-12"><Overview result={result} onJump={onJump} /><FoodcourtSection result={result} /><UsersSection result={result} /><AuditSection result={result} /><WeekdaySection result={result} /><div className="mt-14 flex flex-col justify-between gap-5 rounded-2xl bg-[hsl(var(--sidebar))] p-6 text-[hsl(var(--sidebar-foreground))] sm:flex-row sm:items-center md:p-8"><div><div className="flex items-center gap-2 text-[hsl(var(--accent))]"><ArrowDownToLine size={17} /><p className="font-mono text-[10px] uppercase tracking-[.18em]">Take it with you</p></div><h2 className="mt-3 font-display text-2xl font-bold tracking-[-.03em]">Your audit trail is ready.</h2><p className="mt-2 max-w-lg text-[13px] leading-5 text-[hsl(var(--sidebar-foreground)/.58)]">The workbook includes overall metrics plus separate foodcourt validation and audit sheets.</p></div><button type="button" onClick={() => onJump('download')} data-testid="button-download-footer" className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[hsl(var(--accent))] px-4 py-3 text-[13px] font-bold text-[hsl(var(--accent-foreground))] transition-transform hover:-translate-y-px">Download workbook <ArrowDownToLine size={15} /></button></div><div id="download" className="pt-6 text-center font-mono text-[10px] uppercase tracking-[.13em] text-[hsl(var(--muted-foreground))]">Processed locally · Nothing leaves this browser</div></main>;
 }
 
 function Home() {

@@ -2,10 +2,12 @@ import * as XLSX from 'xlsx';
 
 export const REQUIRED_COLUMNS = ['User', 'User Type', 'Date', 'Credits'] as const;
 export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+export const UNASSIGNED_FOODCOURT = 'Unassigned';
 
 export type CleanRow = Record<string, unknown> & {
   User: string;
   'User Type': string;
+  Foodcourt: string;
   Date: Date | null;
   Credits: number;
   'Week Day': string;
@@ -17,6 +19,7 @@ export type UserDailyRow = {
   'Week Day': string;
   User: string;
   'User Type': string;
+  Foodcourt: string;
   'Daily User Credits': number;
   'Over 200': boolean;
   'Vendor No Credit': boolean;
@@ -39,12 +42,27 @@ export type DailyMetric = {
 export type UserMetric = {
   User: string;
   'User Type': string;
+  Foodcourt: string;
   'Days Used': number;
   'Total Credits': number;
   'Max Credits/Day': number;
   '>200 Days': number;
   'Vendor Credit Days': number;
   'Avg Credits/Day': number;
+};
+
+export type FoodcourtMetric = {
+  Foodcourt: string;
+  'Active Days': number;
+  'Total Users': number;
+  'Credit Users': number;
+  'Total Credits': number;
+  'Avg Credit/User': number;
+  'Users >200': number;
+  'Vendor Credit Users': number;
+  'Review Rows': number;
+  'Total Orders': number;
+  'Validation Status': 'OK' | 'REVIEW';
 };
 
 export type WeekdayMetric = {
@@ -62,10 +80,13 @@ export type AnalysisResult = {
   sourceColumns: number;
   sourceMode: 'order-log' | 'summary';
   notices: string[];
+  foodcourtColumn: string | null;
+  foodcourtCount: number;
   rawData: CleanRow[];
   userDaily: UserDailyRow[];
   dailyMetrics: DailyMetric[];
   userMetrics: UserMetric[];
+  foodcourtMetrics: FoodcourtMetric[];
   over200: UserDailyRow[];
   vendorCreditUsers: UserDailyRow[];
   weekdaySummary: WeekdayMetric[];
@@ -112,15 +133,18 @@ const cleanDate = (value: unknown): Date | null => {
   }
   const text = String(value ?? '').trim();
   if (!text) return null;
-  const explicit = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  const iso = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s|T|$)/);
+  if (iso) {
+    return fromDateParts(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  }
+  const explicit = text.match(/^(\d{1,2})([-/.])(\d{1,2})\2(\d{4})(?:\s|T|$)/);
   if (explicit) {
-    const [, first, second, year] = explicit;
+    const [, first, , second, year] = explicit;
     const firstNumber = Number(first);
     const secondNumber = Number(second);
-    // Match pandas' dayfirst=False default where possible, then support unambiguous day-first exports.
-    return firstNumber > 12
-      ? fromDateParts(Number(year), secondNumber, firstNumber)
-      : fromDateParts(Number(year), firstNumber, secondNumber);
+    // SmartQ exports use India's day-first format, including ambiguous dates
+    // such as 01-09-2026, which must remain 1 September rather than 9 January.
+    return fromDateParts(Number(year), secondNumber, firstNumber);
   }
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return null;
@@ -136,6 +160,16 @@ const cleanCredits = (value: unknown) => {
 const weekday = (date: Date) => date.toLocaleDateString('en-US', { weekday: 'long' });
 
 const unique = (values: string[]) => new Set(values).size;
+
+const normalizedHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const findFoodcourtColumn = (headers: string[]) =>
+  headers.find((header) => normalizedHeader(header).startsWith('foodcourt')) ?? null;
+
+const cleanFoodcourt = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  return text || UNASSIGNED_FOODCOURT;
+};
 
 const toRows = (sheet: XLSX.WorkSheet) =>
   XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true });
@@ -163,6 +197,7 @@ export const analyzeWorkbook = async (
   const headers = rawHeaders.map(asCleanHeader);
   const summaryUserColumn = headers.find((header) => header.toLowerCase() === 'email id');
   const summaryCreditsColumn = headers.find((header) => header.toLowerCase() === 'sum of points');
+  const foodcourtColumn = findFoodcourtColumn(headers);
   const isSummary = Boolean(summaryUserColumn && summaryCreditsColumn && headers.includes('User Type') && !headers.includes('Date'));
   const missing = isSummary
     ? []
@@ -183,6 +218,13 @@ export const analyzeWorkbook = async (
         'Email ID was used as User and Sum of Points was used as Credits.',
       ]
     : [];
+  if (!foodcourtColumn) {
+    notices.push(
+      isSummary
+        ? `No Foodcourt column was included in this summary export. All rows are grouped under ${UNASSIGNED_FOODCOURT}.`
+        : `No Foodcourt column was detected. All rows are grouped under ${UNASSIGNED_FOODCOURT}.`,
+    );
+  }
 
   const rawData: CleanRow[] = sourceRows.map((source) => {
     const row: Record<string, unknown> = {};
@@ -190,6 +232,7 @@ export const analyzeWorkbook = async (
     const date = isSummary ? summaryDate : cleanDate(row.Date);
     row.User = String(isSummary ? row[summaryUserColumn!] : row.User ?? '').trim();
     row['User Type'] = String(row['User Type'] ?? '').trim();
+    row.Foodcourt = cleanFoodcourt(foodcourtColumn ? row[foodcourtColumn] : null);
     row.Date = date;
     row.Credits = cleanCredits(isSummary ? row[summaryCreditsColumn!] : row.Credits);
     row['Week Day'] = date ? weekday(date) : '';
@@ -202,7 +245,7 @@ export const analyzeWorkbook = async (
   validRows.forEach((row) => {
     const date = row.Date;
     const dateKey = dateKeyFor(date);
-    const key = `${dateKey}\u0000${row.User}\u0000${row['User Type']}`;
+    const key = `${dateKey}\u0000${row.User}\u0000${row['User Type']}\u0000${row.Foodcourt}`;
     const existing = grouped.get(key);
     if (existing) existing['Daily User Credits'] += row.Credits;
     else grouped.set(key, {
@@ -211,6 +254,7 @@ export const analyzeWorkbook = async (
       'Week Day': row['Week Day'],
       User: row.User,
       'User Type': row['User Type'],
+      Foodcourt: row.Foodcourt,
       'Daily User Credits': row.Credits,
       'Over 200': false,
       'Vendor No Credit': false,
@@ -245,25 +289,73 @@ export const analyzeWorkbook = async (
     };
   });
 
-  const userKeys = [...new Set(userDaily.map((row) => `${row.User}\u0000${row['User Type']}`))];
-  const userMetrics: UserMetric[] = userKeys.map((key) => {
-    const [user, userType] = key.split('\u0000');
-    const group = userDaily.filter((row) => row.User === user && row['User Type'] === userType);
-    const total = group.reduce((sum, row) => sum + row['Daily User Credits'], 0);
-    return {
-      User: user,
-      'User Type': userType,
-      'Days Used': new Set(group.map((row) => row.dateKey)).size,
-      'Total Credits': total,
-      'Max Credits/Day': Math.max(...group.map((row) => row['Daily User Credits'])),
-      '>200 Days': group.filter((row) => row['Over 200']).length,
-      'Vendor Credit Days': group.filter((row) => row['Vendor Used Credit']).length,
-      'Avg Credits/Day': round2(total / group.length),
-    };
-  }).sort((a, b) => b['Total Credits'] - a['Total Credits'] || a.User.localeCompare(b.User));
+  const userMetricGroups = new Map<string, {
+    User: string;
+    'User Type': string;
+    Foodcourt: string;
+    dates: Set<string>;
+    total: number;
+    max: number;
+    over200: number;
+    vendorDays: number;
+  }>();
+  userDaily.forEach((row) => {
+    const key = `${row.User}\u0000${row['User Type']}\u0000${row.Foodcourt}`;
+    const existing = userMetricGroups.get(key);
+    if (existing) {
+      existing.dates.add(row.dateKey);
+      existing.total += row['Daily User Credits'];
+      existing.max = Math.max(existing.max, row['Daily User Credits']);
+      existing.over200 += row['Over 200'] ? 1 : 0;
+      existing.vendorDays += row['Vendor Used Credit'] ? 1 : 0;
+    } else {
+      userMetricGroups.set(key, {
+        User: row.User,
+        'User Type': row['User Type'],
+        Foodcourt: row.Foodcourt,
+        dates: new Set([row.dateKey]),
+        total: row['Daily User Credits'],
+        max: row['Daily User Credits'],
+        over200: row['Over 200'] ? 1 : 0,
+        vendorDays: row['Vendor Used Credit'] ? 1 : 0,
+      });
+    }
+  });
+  const userMetrics: UserMetric[] = [...userMetricGroups.values()].map((group) => ({
+    User: group.User,
+    'User Type': group['User Type'],
+    Foodcourt: group.Foodcourt,
+    'Days Used': group.dates.size,
+    'Total Credits': group.total,
+    'Max Credits/Day': group.max,
+    '>200 Days': group.over200,
+    'Vendor Credit Days': group.vendorDays,
+    'Avg Credits/Day': round2(group.total / group.dates.size),
+  })).sort((a, b) => b['Total Credits'] - a['Total Credits'] || a.User.localeCompare(b.User));
 
   const over200 = userDaily.filter((row) => row['Over 200']).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || b['Daily User Credits'] - a['Daily User Credits']);
   const vendorCreditUsers = userDaily.filter((row) => row['Vendor Used Credit']).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || b['Daily User Credits'] - a['Daily User Credits']);
+  const foodcourtMetrics: FoodcourtMetric[] = [...new Set(userDaily.map((row) => row.Foodcourt))]
+    .sort((a, b) => a.localeCompare(b))
+    .map((foodcourt) => {
+      const group = userDaily.filter((row) => row.Foodcourt === foodcourt);
+      const creditUsers = unique(group.filter((row) => row['Daily User Credits'] > 0).map((row) => row.User));
+      const totalCredits = group.reduce((sum, row) => sum + row['Daily User Credits'], 0);
+      const reviewRows = group.filter((row) => row['Audit Status'] === 'REVIEW').length;
+      return {
+        Foodcourt: foodcourt,
+        'Active Days': new Set(group.map((row) => row.dateKey)).size,
+        'Total Users': unique(group.map((row) => row.User)),
+        'Credit Users': creditUsers,
+        'Total Credits': totalCredits,
+        'Avg Credit/User': creditUsers ? round2(totalCredits / creditUsers) : 0,
+        'Users >200': unique(group.filter((row) => row['Over 200']).map((row) => row.User)),
+        'Vendor Credit Users': unique(group.filter((row) => row['Vendor Used Credit']).map((row) => row.User)),
+        'Review Rows': reviewRows,
+        'Total Orders': validRows.filter((row) => row.Foodcourt === foodcourt).length,
+        'Validation Status': reviewRows ? 'REVIEW' : 'OK',
+      };
+    });
 
   const weekdaySummary = WEEKDAYS.flatMap((day) => {
     const group = userDaily.filter((row) => row['Week Day'] === day);
@@ -287,10 +379,13 @@ export const analyzeWorkbook = async (
     sourceColumns: headers.length,
     sourceMode: isSummary ? 'summary' : 'order-log',
     notices,
+    foodcourtColumn,
+    foodcourtCount: foodcourtMetrics.length,
     rawData,
     userDaily,
     dailyMetrics,
     userMetrics,
+    foodcourtMetrics,
     over200,
     vendorCreditUsers,
     weekdaySummary,
@@ -324,6 +419,8 @@ export const buildWorkbook = (result: AnalysisResult) => {
   const workbook = XLSX.utils.book_new();
   appendSheet(workbook, 'Daily_Metrics', result.dailyMetrics);
   appendSheet(workbook, 'User_Metrics', result.userMetrics);
+  appendSheet(workbook, 'Foodcourt_Metrics', result.foodcourtMetrics);
+  appendSheet(workbook, 'Foodcourt_Audit', result.userDaily.filter((row) => row['Audit Status'] === 'REVIEW'));
   appendSheet(workbook, 'Users_Over_200', result.over200);
   appendSheet(workbook, 'Vendor_Credit_Users', result.vendorCreditUsers);
   appendSheet(workbook, 'Weekday_Summary', result.weekdaySummary);
