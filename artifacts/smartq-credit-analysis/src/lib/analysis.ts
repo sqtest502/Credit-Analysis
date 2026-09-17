@@ -270,9 +270,20 @@ export const analyzeWorkbook = async (
     return { ...row, 'Over 200': over, 'Vendor No Credit': vendor, 'Vendor Used Credit': vendorUsed, 'Audit Status': over || vendorUsed ? 'REVIEW' : 'OK' as 'OK' | 'REVIEW' };
   });
 
-  const dates = [...new Set(userDaily.map((row) => row.dateKey))].sort();
+  const dailyGroups = new Map<string, UserDailyRow[]>();
+  userDaily.forEach((row) => {
+    const group = dailyGroups.get(row.dateKey);
+    if (group) group.push(row);
+    else dailyGroups.set(row.dateKey, [row]);
+  });
+  const orderCountsByDate = new Map<string, number>();
+  validRows.forEach((row) => {
+    const dateKey = dateKeyFor(row.Date);
+    orderCountsByDate.set(dateKey, (orderCountsByDate.get(dateKey) ?? 0) + 1);
+  });
+  const dates = [...dailyGroups.keys()].sort();
   const dailyMetrics: DailyMetric[] = dates.map((dateKey) => {
-    const group = userDaily.filter((row) => row.dateKey === dateKey);
+    const group = dailyGroups.get(dateKey)!;
     const date = group[0].Date;
     const creditUsers = unique(group.filter((row) => row['Daily User Credits'] > 0).map((row) => row.User));
     const totalCredits = group.reduce((sum, row) => sum + row['Daily User Credits'], 0);
@@ -285,7 +296,7 @@ export const analyzeWorkbook = async (
       'Avg Credit/User': creditUsers ? round2(totalCredits / creditUsers) : 0,
       'Users >200': unique(group.filter((row) => row['Over 200']).map((row) => row.User)),
       'Vendor Credit Users': unique(group.filter((row) => row['Vendor Used Credit']).map((row) => row.User)),
-      'Total Orders': validRows.filter((row) => dateKeyFor(row.Date) === dateKey).length,
+      'Total Orders': orderCountsByDate.get(dateKey) ?? 0,
     };
   });
 
@@ -335,10 +346,20 @@ export const analyzeWorkbook = async (
 
   const over200 = userDaily.filter((row) => row['Over 200']).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || b['Daily User Credits'] - a['Daily User Credits']);
   const vendorCreditUsers = userDaily.filter((row) => row['Vendor Used Credit']).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || b['Daily User Credits'] - a['Daily User Credits']);
-  const foodcourtMetrics: FoodcourtMetric[] = [...new Set(userDaily.map((row) => row.Foodcourt))]
+  const foodcourtGroups = new Map<string, UserDailyRow[]>();
+  userDaily.forEach((row) => {
+    const group = foodcourtGroups.get(row.Foodcourt);
+    if (group) group.push(row);
+    else foodcourtGroups.set(row.Foodcourt, [row]);
+  });
+  const orderCountsByFoodcourt = new Map<string, number>();
+  validRows.forEach((row) => {
+    orderCountsByFoodcourt.set(row.Foodcourt, (orderCountsByFoodcourt.get(row.Foodcourt) ?? 0) + 1);
+  });
+  const foodcourtMetrics: FoodcourtMetric[] = [...foodcourtGroups.keys()]
     .sort((a, b) => a.localeCompare(b))
     .map((foodcourt) => {
-      const group = userDaily.filter((row) => row.Foodcourt === foodcourt);
+      const group = foodcourtGroups.get(foodcourt)!;
       const creditUsers = unique(group.filter((row) => row['Daily User Credits'] > 0).map((row) => row.User));
       const totalCredits = group.reduce((sum, row) => sum + row['Daily User Credits'], 0);
       const reviewRows = group.filter((row) => row['Audit Status'] === 'REVIEW').length;
@@ -352,7 +373,7 @@ export const analyzeWorkbook = async (
         'Users >200': unique(group.filter((row) => row['Over 200']).map((row) => row.User)),
         'Vendor Credit Users': unique(group.filter((row) => row['Vendor Used Credit']).map((row) => row.User)),
         'Review Rows': reviewRows,
-        'Total Orders': validRows.filter((row) => row.Foodcourt === foodcourt).length,
+        'Total Orders': orderCountsByFoodcourt.get(foodcourt) ?? 0,
         'Validation Status': reviewRows ? 'REVIEW' : 'OK',
       };
     });
