@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -36,10 +36,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { Canvas } from '@react-three/fiber';
+import { ContactShadows, Grid, Html, OrbitControls, Sphere } from '@react-three/drei';
 import NotFound from '@/pages/not-found';
 import {
   AnalysisError,
   WEEKDAYS,
+  analyzeWorkbook,
   buildWorkbook,
   formatDate,
   formatNumber,
@@ -73,7 +76,9 @@ const analyzeInWorker = (input: ArrayBuffer | string, format: 'excel' | 'csv', s
   };
   worker.onerror = (event) => {
     worker.terminate();
-    reject(new Error(event.message || 'The workbook could not be analyzed.'));
+    void analyzeWorkbook(input instanceof ArrayBuffer ? input.slice(0) : input, format, sourceName)
+      .then(resolve)
+      .catch((error) => reject(error instanceof Error ? error : new Error(event.message || 'The workbook could not be analyzed.')));
   };
   const request = { input, format, sourceName };
   if (input instanceof ArrayBuffer) worker.postMessage(request, [input]);
@@ -329,6 +334,117 @@ function SignalCharts({ result, selectedFoodcourt }: { result: AnalysisResult; s
   );
 }
 
+type CreditBarData = {
+  dateKey: string;
+  label: string;
+  foodcourt: string;
+  credits: number;
+  flagged: boolean;
+  color: string;
+};
+
+const CreditOrb = memo(function CreditOrb({ bar, position, radius, active, lightweight, onHover }: { bar: CreditBarData; position: [number, number, number]; radius: number; active: boolean; lightweight: boolean; onHover: (bar: CreditBarData | null) => void }) {
+  return <mesh
+    position={[position[0], position[1] + (active ? 0.14 : 0), position[2]]}
+    scale={active ? 1.14 : 1}
+    onPointerOver={(event) => { event.stopPropagation(); onHover(bar); }}
+    onPointerLeave={() => onHover(null)}
+    castShadow={!lightweight}
+  >
+    <Sphere args={[radius, lightweight ? 8 : 16, lightweight ? 6 : 12]} castShadow={!lightweight} receiveShadow={!lightweight}>
+      <meshStandardMaterial color={bar.flagged ? '#c2415d' : bar.color} roughness={0.24} metalness={0.18} />
+    </Sphere>
+  </mesh>;
+});
+
+function ThreeDCreditLandscape({ result, selectedFoodcourt }: { result: AnalysisResult; selectedFoodcourt: string }) {
+  const [hoveredBar, setHoveredBar] = useState<CreditBarData | null>(null);
+  const palette = ['#0f766e', '#d97706', '#2563eb', '#be405b', '#4f7d55', '#8b5e34'];
+  const bars = useMemo(() => {
+    const rows = result.userDaily.filter((row) => selectedFoodcourt === 'all' || row.Foodcourt === selectedFoodcourt);
+    const grouped = new Map<string, CreditBarData>();
+    rows.forEach((row) => {
+      const key = `${row.dateKey}-${row.Foodcourt}`;
+      const existing = grouped.get(key);
+      const credits = (existing?.credits ?? 0) + row['Daily User Credits'];
+      grouped.set(key, {
+        dateKey: row.dateKey,
+        label: formatDate(row.Date),
+        foodcourt: row.Foodcourt,
+        credits,
+        flagged: Boolean(existing?.flagged || row['Over 200'] || row['Vendor Used Credit']),
+        color: '',
+      });
+    });
+    return [...grouped.values()].sort((left, right) => left.dateKey.localeCompare(right.dateKey) || left.foodcourt.localeCompare(right.foodcourt));
+  }, [result.userDaily, selectedFoodcourt]);
+  const dates = [...new Set(bars.map((bar) => bar.dateKey))];
+  const foodcourts = [...new Set(bars.map((bar) => bar.foodcourt))];
+  const foodcourtColors = new Map(foodcourts.map((foodcourt, index) => [foodcourt, palette[index % palette.length]]));
+  const lightweight = bars.length > 220;
+  const dateBucketSize = Math.max(1, Math.ceil(dates.length / 32));
+  const visualBars = useMemo(() => {
+    if (dateBucketSize === 1) return bars;
+    const sourceDates = [...new Set(bars.map((bar) => bar.dateKey))];
+    const buckets = new Map<string, CreditBarData>();
+    bars.forEach((bar) => {
+      const dateBucket = Math.floor(sourceDates.indexOf(bar.dateKey) / dateBucketSize);
+      const key = `${dateBucket}-${bar.foodcourt}`;
+      const existing = buckets.get(key);
+      buckets.set(key, {
+        ...bar,
+        dateKey: `${dateBucket}`,
+        label: existing ? `${existing.label} - ${bar.label}` : bar.label,
+        credits: (existing?.credits ?? 0) + bar.credits,
+        flagged: Boolean(existing?.flagged || bar.flagged),
+      });
+    });
+    return [...buckets.values()];
+  }, [bars, dateBucketSize]);
+  const visualDates = [...new Set(visualBars.map((bar) => bar.dateKey))];
+  const maxCredits = Math.max(...visualBars.map((bar) => bar.credits), 1);
+  const dateIndex = new Map(visualDates.map((date, index) => [date, index]));
+  const foodcourtIndex = new Map(foodcourts.map((foodcourt, index) => [foodcourt, index]));
+  const xOffset = visualDates.length / 2;
+  const zOffset = foodcourts.length / 2;
+  const hoveredVisualBar = hoveredBar ? visualBars.find((bar) => bar.dateKey === hoveredBar.dateKey && bar.foodcourt === hoveredBar.foodcourt) : null;
+  const hoveredIntensity = hoveredVisualBar ? Math.max(0.08, hoveredVisualBar.credits / maxCredits) : 0;
+  const hoveredPosition: [number, number, number] = hoveredVisualBar
+    ? [
+        (dateIndex.get(hoveredVisualBar.dateKey) ?? 0) - xOffset + 0.5,
+        0.28 + hoveredIntensity * 2.7 + 0.45,
+        (foodcourtIndex.get(hoveredVisualBar.foodcourt) ?? 0) - zOffset + 0.5,
+      ]
+    : [0, 0, 0];
+
+  return <section className="relative z-10 mt-8 overflow-visible rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-[var(--shadow-soft)]" aria-label="Three-dimensional credit landscape">
+    <div className="flex flex-col justify-between gap-3 border-b border-[hsl(var(--border))] px-5 py-5 sm:flex-row sm:items-start md:px-6">
+      <div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--primary))]">Spatial view</p><h2 className="mt-1 font-display text-lg font-bold tracking-[-.03em]">Credit constellation</h2><p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">Each orb maps a date and foodcourt. Larger, higher orbs carry more credit volume.</p></div>
+      <div className="flex shrink-0 items-center gap-3 font-mono d-none text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#0f766e] d-none" />Location colors</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#c2415d]" />Audit flag</span></div>
+    </div>
+    <div className="relative h-[360px] bg-[radial-gradient(circle_at_50%_0%,hsl(var(--primary)/.12),transparent_58%)] sm:h-[430px]">
+      {bars.length ? <Canvas shadows={!lightweight} camera={{ position: [8, 6.6, 10], fov: 40 }} dpr={lightweight ? 1 : [1, 1.5]} style={{ touchAction: 'none' }} onCreated={({ gl }) => { gl.domElement.style.touchAction = 'none'; }}>
+        <color attach="background" args={['#f5f1e9']} />
+        <ambientLight intensity={1.4} />
+        <directionalLight castShadow={!lightweight} position={[4, 8, 5]} intensity={2.2} shadow-mapSize={[lightweight ? 512 : 1024, lightweight ? 512 : 1024]} />
+        <group rotation={[-0.05, 0, 0]}>
+          {visualBars.map((bar) => {
+            const intensity = Math.max(0.08, bar.credits / maxCredits);
+            const height = 0.28 + intensity * 2.7;
+            const radius = 0.12 + intensity * 0.28;
+            return <CreditOrb key={`${bar.dateKey}-${bar.foodcourt}`} bar={{ ...bar, color: foodcourtColors.get(bar.foodcourt) ?? palette[0] }} radius={radius} lightweight={lightweight} active={hoveredBar?.dateKey === bar.dateKey && hoveredBar.foodcourt === bar.foodcourt} position={[(dateIndex.get(bar.dateKey) ?? 0) - xOffset + 0.5, height, (foodcourtIndex.get(bar.foodcourt) ?? 0) - zOffset + 0.5]} onHover={setHoveredBar} />;
+          })}
+          <Grid args={[Math.max(visualDates.length, 4), Math.max(foodcourts.length, 4)]} cellSize={1} cellThickness={lightweight ? 0.35 : 0.6} cellColor="#b8c8cf" sectionSize={5} sectionThickness={1.1} sectionColor="#7f9ca8" fadeDistance={22} fadeStrength={1.3} position={[-0.5, 0, -0.5]} />
+          {!lightweight && <ContactShadows opacity={0.28} scale={Math.max(visualDates.length, foodcourts.length) + 4} blur={2.8} far={5} resolution={512} position={[0, 0.02, 0]} />}
+        </group>
+        {hoveredBar && hoveredVisualBar && <Html position={hoveredPosition} center distanceFactor={7} zIndexRange={[100, 0]} style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}><div className="min-w-[150px] rounded-lg border border-[hsl(var(--border))] bg-white/95 px-3 py-2 text-left shadow-xl"><p className="font-mono text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">{hoveredBar.label}</p><p className="mt-1 text-[12px] font-semibold">{hoveredBar.foodcourt}</p><p className="mt-1 font-mono text-[12px] text-[hsl(var(--primary))]">{numeric(hoveredBar.credits)} credits</p>{hoveredBar.flagged && <p className="mt-1 text-[10px] font-semibold uppercase tracking-[.08em] text-[hsl(var(--accent-foreground))]">Audit flag</p>}</div></Html>}
+        <OrbitControls makeDefault enableDamping dampingFactor={0.08} rotateSpeed={0.7} zoomSpeed={0.9} enablePan={false} minDistance={4} maxDistance={24} minPolarAngle={0.35} maxPolarAngle={1.5} target={[0, 0.8, 0]} />
+      </Canvas> : <div className="grid h-full place-items-center px-6 text-center text-[12px] text-[hsl(var(--muted-foreground))]">No valid credit data is available for the selected foodcourt.</div>}
+      <div className="pointer-events-none absolute bottom-4 left-4 rounded-md bg-white/70 px-2 py-1 font-mono text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Drag to orbit · scroll to zoom</div>
+    </div>
+  </section>;
+}
+
 function DataQuality({ result }: { result: AnalysisResult }) {
   const blankUsers = result.rawData.filter((row) => !row.User).length;
   const zeroCreditRows = result.rawData.filter((row) => row.Credits === 0).length;
@@ -372,6 +488,7 @@ function Overview({ result, onJump, selectedFoodcourt, onFoodcourtChange }: { re
           <div className="flex items-start gap-3"><div className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg ${exceptionCount ? 'bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))]' : 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'}`}>{exceptionCount ? <AlertTriangle size={16} /> : <Check size={17} />}</div><div><p className="text-[13px] font-semibold">{exceptionCount ? `${numeric(exceptionCount)} audit ${exceptionCount === 1 ? 'exception needs' : 'exceptions need'} review` : 'No audit exceptions found'}</p><p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">{exceptionCount ? 'The queue below is sorted by date and daily credit impact.' : 'Thresholds checked: over 200 credits per day and VendorNoCredit usage.'}</p></div></div>{exceptionCount > 0 && <button type="button" onClick={() => onJump('audit-section')} data-testid="button-review-exceptions" className="flex items-center gap-2 self-start rounded-lg bg-[hsl(var(--foreground))] px-3 py-2 text-[12px] font-semibold text-[hsl(var(--card))] transition-transform hover:-translate-y-px sm:self-auto">Review queue <ArrowRight size={14} /></button>}</div>
       </section>
       <SignalCharts result={result} selectedFoodcourt={selectedFoodcourt} />
+      <ThreeDCreditLandscape result={result} selectedFoodcourt={selectedFoodcourt} />
       <DataQuality result={result} />
       <section className="mt-14">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><SectionHeading id="daily-section" eyebrow="At a glance" title="Daily rhythm" count={`${dailyMetrics.length} active days`} /><label className="flex items-center gap-2 text-[11px] text-[hsl(var(--muted-foreground))]"><span className="font-mono text-[10px] uppercase tracking-[.12em]">Foodcourt</span><select value={selectedFoodcourt} onChange={(event) => onFoodcourtChange(event.target.value)} data-testid="select-daily-foodcourt" aria-label="Filter daily rhythm by foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] font-medium text-[hsl(var(--foreground))] outline-none focus:border-[hsl(var(--primary)/.7)] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]"><option value="all">All foodcourts</option>{result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}</select></label></div>
@@ -502,7 +619,7 @@ function AuditSection({ result }: { result: AnalysisResult }) {
     `${row.Foodcourt} ${row.User} ${row['User Type']} ${row['Week Day']}`.toLowerCase().includes(search.toLowerCase());
   const over200 = result.over200.filter(matches);
   const vendor = result.vendorCreditUsers.filter(matches);
-  return <section id="audit-section" className="mt-14 scroll-mt-28"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><SectionHeading id="audit-heading" eyebrow="Exceptions first" title="Audit queue" count={`${result.over200.length + result.vendorCreditUsers.length} flags`} /><div className="flex flex-col gap-2 sm:flex-row"><select value={foodcourt} onChange={(event) => setFoodcourt(event.target.value)} data-testid="select-audit-foodcourt" aria-label="Filter audit queue by foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] outline-none focus:border-[hsl(var(--primary)/.5)]"><option value="all">All foodcourts</option>{result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}</select><div className="relative"><Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-[hsl(var(--muted-foreground))]" /><input value={search} onChange={(event) => setSearch(event.target.value)} data-testid="input-audit-search" aria-label="Filter audit queue" placeholder="Filter users…" className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] py-2 pl-9 pr-3 text-[12px] outline-none transition-colors placeholder:text-[hsl(var(--muted-foreground)/.7)] focus:border-[hsl(var(--primary)/.5)] sm:w-48" /></div></div></div><div className="mb-5 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-[hsl(var(--accent)/.5)] bg-[hsl(var(--accent)/.1)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--accent-foreground))]">Threshold review</p><p className="mt-1 text-[13px] font-semibold">{numeric(over200.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">Daily credits above 200.</p></div><div className="rounded-lg border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.07)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--destructive))]">Policy review</p><p className="mt-1 text-[13px] font-semibold">{numeric(vendor.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">VendorNoCredit users with usage.</p></div></div><div className="grid gap-5 xl:grid-cols-2"><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--accent))]" /><h3 className="text-[13px] font-semibold">Over 200 credits in a day</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{over200.length}</span></div><AuditTable testId="table-over-200" rows={over200} emptyText={search || foodcourt !== 'all' ? 'No matching threshold exceptions.' : 'No users exceeded 200 credits.'} /></div><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--destructive))]" /><h3 className="text-[13px] font-semibold">VendorNoCredit with usage</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{vendor.length}</span></div><AuditTable testId="table-vendor-credit" rows={vendor} emptyText={search || foodcourt !== 'all' ? 'No matching vendor exceptions.' : 'No VendorNoCredit users used credits.'} /></div></div></section>;
+  return <section id="audit-section" className="mt-14 scroll-mt-28"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end p-4"><SectionHeading id="audit-heading" eyebrow="Exceptions first" title="Audit queue" count={`${result.over200.length + result.vendorCreditUsers.length} flags`} /><div className="flex flex-col gap-2 sm:flex-row"><select value={foodcourt} onChange={(event) => setFoodcourt(event.target.value)} data-testid="select-audit-foodcourt" aria-label="Filter audit queue by foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] outline-none focus:border-[hsl(var(--primary)/.5)]"><option value="all">All foodcourts</option>{result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}</select><div className="relative"><Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-[hsl(var(--muted-foreground))]" /><input value={search} onChange={(event) => setSearch(event.target.value)} data-testid="input-audit-search" aria-label="Filter audit queue" placeholder="Filter users…" className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] py-2 pl-9 pr-3 text-[12px] outline-none transition-colors placeholder:text-[hsl(var(--muted-foreground)/.7)] focus:border-[hsl(var(--primary)/.5)] sm:w-48" /></div></div></div><div className="mb-5 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-[hsl(var(--accent)/.5)] bg-[hsl(var(--accent)/.1)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--accent-foreground))]">Threshold review</p><p className="mt-1 text-[13px] font-semibold">{numeric(over200.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">Daily credits above 200.</p></div><div className="rounded-lg border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.07)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--destructive))]">Policy review</p><p className="mt-1 text-[13px] font-semibold">{numeric(vendor.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">VendorNoCredit users with usage.</p></div></div><div className="grid gap-5 xl:grid-cols-2"><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--accent))]" /><h3 className="text-[13px] font-semibold">Over 200 credits in a day</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{over200.length}</span></div><AuditTable testId="table-over-200" rows={over200} emptyText={search || foodcourt !== 'all' ? 'No matching threshold exceptions.' : 'No users exceeded 200 credits.'} /></div><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--destructive))]" /><h3 className="text-[13px] font-semibold">VendorNoCredit with usage</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{vendor.length}</span></div><AuditTable testId="table-vendor-credit" rows={vendor} emptyText={search || foodcourt !== 'all' ? 'No matching vendor exceptions.' : 'No VendorNoCredit users used credits.'} /></div></div></section>;
 }
 
 function WeekdaySection({ result }: { result: AnalysisResult }) {
