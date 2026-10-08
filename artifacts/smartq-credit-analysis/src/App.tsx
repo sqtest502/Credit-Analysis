@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -22,10 +22,11 @@ import {
   Table2,
   UploadCloud,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -36,8 +37,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Canvas } from '@react-three/fiber';
-import { ContactShadows, Grid, Html, OrbitControls, Sphere } from '@react-three/drei';
 import NotFound from '@/pages/not-found';
 import {
   AnalysisError,
@@ -96,10 +95,15 @@ function dailyMetricsForFoodcourt(result: AnalysisResult, foodcourt: string): Da
     if (group) group.push(row);
     else groups.set(key, [row]);
   });
+  const ordersByDate = new Map<string, number>();
+  result.rawData.forEach((row) => {
+    if (row.Foodcourt !== foodcourt || !row.Date) return;
+    const dateKey = dateKeyFor(row.Date);
+    ordersByDate.set(dateKey, (ordersByDate.get(dateKey) ?? 0) + 1);
+  });
   return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([dateKey, rows]) => {
     const creditUsers = new Set(rows.filter((row) => row['Daily User Credits'] > 0).map((row) => row.User));
     const totalCredits = rows.reduce((sum, row) => sum + row['Daily User Credits'], 0);
-    const sourceOrders = result.rawData.filter((row) => row.Foodcourt === foodcourt && row.Date && dateKeyFor(row.Date) === dateKey).length;
     return {
       Date: rows[0].Date,
       'Week Day': rows[0]['Week Day'],
@@ -109,7 +113,7 @@ function dailyMetricsForFoodcourt(result: AnalysisResult, foodcourt: string): Da
       'Avg Credit/User': creditUsers.size ? totalCredits / creditUsers.size : 0,
       'Users >200': new Set(rows.filter((row) => row['Over 200']).map((row) => row.User)).size,
       'Vendor Credit Users': new Set(rows.filter((row) => row['Vendor Used Credit']).map((row) => row.User)).size,
-      'Total Orders': sourceOrders,
+      'Total Orders': ordersByDate.get(dateKey) ?? 0,
     };
   });
 }
@@ -117,44 +121,38 @@ function dailyMetricsForFoodcourt(result: AnalysisResult, foodcourt: string): Da
 function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-[100dvh] bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[272px] flex-col bg-[hsl(var(--sidebar))] px-6 py-7 text-[hsl(var(--sidebar-foreground))] md:flex">
-        <div className="flex items-center gap-3 px-2">
-          <div className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] shadow-[0_8px_22px_rgba(224,165,54,.16)]">
-            <ShieldCheck size={21} strokeWidth={2.5} />
-          </div>
-          <div>
-            <p className="font-display text-[17px] font-bold tracking-tight">SmartQ</p>
-            <p className="font-mono text-[10px] uppercase tracking-[.18em] text-[hsl(var(--sidebar-foreground)/.58)]">Credit analysis</p>
-          </div>
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[276px] flex-col border-r border-white/10 bg-[linear-gradient(180deg,_#101827_0%,_#121b2d_100%)] px-6 py-7 text-[hsl(var(--sidebar-foreground))] shadow-[0_18px_45px_rgba(15,23,42,0.28)] md:flex">
+        <div className="px-1">
+          <img src="/smartq-logo.avif" alt="SmartQ, a Compass Group company" className="h-auto w-full max-w-[210px] object-contain" />
         </div>
         <div className="mt-12 px-2">
-          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[hsl(var(--sidebar-foreground)/.42)]">Workbench</p>
-          <nav className="mt-3 space-y-1" aria-label="Analysis sections">
+          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-slate-400">Workbench</p>
+          <nav className="mt-3 space-y-1.5" aria-label="Analysis sections">
             {navItems.map(({ key, label, icon: Icon, target }) => (
               <a
                 href={`#${target}`}
                 key={key}
                 data-testid={`link-${key}`}
-                className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] text-[hsl(var(--sidebar-foreground)/.64)] transition-colors hover:bg-[hsl(var(--sidebar-foreground)/.08)] hover:text-[hsl(var(--sidebar-foreground))] focus-visible:text-[hsl(var(--sidebar-foreground))]"
+                className="group flex items-center gap-3 rounded-xl border border-transparent bg-white/0 px-3 py-2.5 text-[13px] font-medium text-slate-200 transition-all duration-200 hover:border-white/10 hover:bg-white/5 hover:text-white"
               >
-                <Icon size={16} strokeWidth={1.8} className="transition-transform group-hover:translate-x-0.5" />
+                <Icon size={16} strokeWidth={1.8} className="transition-transform group-hover:translate-x-0.5 text-sky-300" />
                 <span>{label}</span>
                 {key === 'audit' && <span className="ml-auto size-1.5 rounded-full bg-[hsl(var(--accent))]" />}
               </a>
             ))}
           </nav>
         </div>
-        <div className="mt-auto rounded-xl border border-[hsl(var(--sidebar-foreground)/.12)] bg-[hsl(var(--sidebar-foreground)/.05)] p-4">
+        <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4">
           <div className="flex items-center gap-2 text-[hsl(var(--accent))]">
             <ShieldCheck size={15} />
             <span className="font-mono text-[10px] uppercase tracking-[.12em]">Support-ready by design</span>
           </div>
-          <p className="mt-2 text-[12px] leading-5 text-[hsl(var(--sidebar-foreground)/.58)]">
+          <p className="mt-2 text-[12px] leading-5 text-slate-300">
             Diagnose credit issues faster, keep customer data private, and hand off a clear audit trail when support needs it.
           </p>
         </div>
       </aside>
-      <div className="md:pl-[272px]">{children}</div>
+      <div className="md:pl-[276px]">{children}</div>
     </div>
   );
 }
@@ -162,9 +160,8 @@ function AppShell({ children }: { children: ReactNode }) {
 function MobileHeader() {
   return (
     <div className="flex items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--card)/.92)] px-5 py-4 md:hidden">
-      <div className="flex items-center gap-2.5">
-        <div className="grid size-8 place-items-center rounded-lg bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))]"><ShieldCheck size={17} /></div>
-        <span className="font-display font-bold">SmartQ</span>
+      <div className="flex items-center">
+        <img src="/smartq-logo.avif" alt="SmartQ, a Compass Group company" className="h-auto w-[142px] object-contain" />
       </div>
       <span className="font-mono text-[10px] uppercase tracking-[.13em] text-[hsl(var(--muted-foreground))]">Credit analysis</span>
     </div>
@@ -176,11 +173,22 @@ function TopBar({ filename, onReset, onDownload, canDownload }: { filename: stri
     <header className="sticky top-0 z-10 flex min-h-[78px] items-center justify-between gap-4 border-b border-[hsl(var(--border))] bg-[hsl(var(--background)/.94)] px-5 backdrop-blur-xl md:px-12">
       <div className="min-w-0">
         <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[hsl(var(--muted-foreground))]">Operations / weekly review</p>
-        <p data-testid="text-source-file" className="mt-1 truncate text-[13px] font-medium text-[hsl(var(--foreground)/.72)]">{filename ? filename : 'No report loaded'}</p>
+        <div className="mt-1 flex items-center gap-2">
+          <p data-testid="text-source-file" className="truncate text-[13px] font-medium text-[hsl(var(--foreground)/.72)]">{filename ? filename : 'No report loaded'}</p>
+          {filename && <Badge variant="secondary" className="hidden text-[10px] sm:inline-flex">Live</Badge>}
+        </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        {filename && <button type="button" onClick={onReset} data-testid="button-new-report" className="hidden items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] font-semibold text-[hsl(var(--foreground)/.75)] transition-all hover:-translate-y-px hover:border-[hsl(var(--primary)/.4)] sm:flex"><RefreshCw size={14} /> New report</button>}
-        <button type="button" onClick={onDownload} disabled={!canDownload} data-testid="button-download-header" className="flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-3 py-2 text-[12px] font-semibold text-[hsl(var(--primary-foreground))] shadow-sm transition-all hover:-translate-y-px hover:bg-[hsl(var(--primary)/.9)] disabled:cursor-not-allowed disabled:opacity-35"><ArrowDownToLine size={14} /> <span className="hidden sm:inline">Download workbook</span><span className="sm:hidden">Export</span></button>
+        {filename && (
+          <Button type="button" variant="outline" size="sm" onClick={onReset} data-testid="button-new-report" className="hidden sm:inline-flex">
+            <RefreshCw size={14} /> New report
+          </Button>
+        )}
+        <Button type="button" size="sm" onClick={onDownload} disabled={!canDownload} data-testid="button-download-header" className="inline-flex gap-2">
+          <ArrowDownToLine size={14} />
+          <span className="hidden sm:inline">Download workbook</span>
+          <span className="sm:hidden">Export</span>
+        </Button>
       </div>
     </header>
   );
@@ -188,27 +196,35 @@ function TopBar({ filename, onReset, onDownload, canDownload }: { filename: stri
 
 function EmptyState({ onPick, dragging }: { onPick: () => void; dragging: boolean }) {
   return (
-    <section data-testid="status-empty" className="animate-rise-in mx-auto max-w-[1060px] px-5 pb-20 pt-12 md:px-10 md:pt-20">
-      <div className="max-w-2xl">
-        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[hsl(var(--primary)/.18)] bg-[hsl(var(--primary)/.06)] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--primary))]"><span className="size-1.5 rounded-full bg-[hsl(var(--primary))]" /> Browser-only workbench</div>
-        <h1 className="font-display text-[clamp(2.55rem,6vw,5.25rem)] font-bold leading-[.98] tracking-[-.055em] text-[hsl(var(--foreground))]">
-          Find the signal<br /><span className="text-[hsl(var(--primary))]">before it becomes noise.</span>
+    <section data-testid="status-empty" className="launch-stage mx-auto max-w-[1060px] px-5 pb-20 pt-12 md:px-10 md:pt-20">
+      <div className="launch-copy max-w-2xl">
+        <Badge variant="secondary" className="mb-5 border-[hsl(var(--primary)/.15)] bg-[hsl(var(--primary)/.06)] text-[hsl(var(--primary))]">
+          <span className="mr-2 size-1.5 rounded-full bg-[hsl(var(--primary))]" /> Browser-only workbench
+        </Badge>
+        <h1 className="launch-title font-display text-[clamp(2.55rem,6vw,5.25rem)] font-bold leading-[.98] tracking-[-.055em] text-[hsl(var(--foreground))]">
+          Find the signal<br /><span className="launch-gradient bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--accent))] bg-clip-text text-transparent">before it becomes noise.</span>
         </h1>
-        <p className="mt-6 max-w-xl text-[16px] leading-7 text-[hsl(var(--muted-foreground))]">Drop in your weekly credit extract. SmartQ cleans the messy edges, maps the day-by-day picture, and puts audit exceptions in plain sight.</p>
+        <p className="launch-description mt-6 max-w-xl text-[16px] leading-7 text-[hsl(var(--muted-foreground))]">Drop in your weekly credit extract. SmartQ cleans the messy edges, maps the day-by-day picture, and puts audit exceptions in plain sight.</p>
       </div>
-      <button type="button" onClick={onPick} data-testid="button-upload-empty" aria-label="Choose a weekly credit report" className={`group relative mt-12 flex w-full max-w-3xl flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed px-6 py-14 text-center transition-all hover:-translate-y-1 hover:border-[hsl(var(--accent))] ${dragging ? 'border-[hsl(var(--accent))] bg-[hsl(var(--primary)/.08)] shadow-[var(--shadow-lifted)]' : 'border-[hsl(var(--primary)/.35)] bg-[hsl(var(--card))] shadow-[var(--shadow-soft)] hover:bg-[hsl(var(--card)/.8)]'}`}>
-        <div className="absolute left-0 top-0 h-1 w-1/3 bg-[hsl(var(--accent))] transition-all group-hover:w-2/3" />
-        <div className={`grid size-14 place-items-center rounded-2xl text-[hsl(var(--primary))] transition-transform group-hover:-translate-y-1 ${dragging ? 'bg-[hsl(var(--accent)/.28)]' : 'bg-[hsl(var(--primary)/.1)]'}`}><UploadCloud size={26} strokeWidth={1.8} /></div>
-        <p className="mt-5 font-display text-[19px] font-semibold">Choose a weekly report</p>
-        <p className="mt-2 text-[13px] text-[hsl(var(--muted-foreground))]">{dragging ? 'Release to start the analysis' : 'or drag and drop it here'}</p>
-        <span className="mt-5 rounded-md bg-[hsl(var(--secondary))] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--muted-foreground))]">.xlsx · .xls · .csv</span>
-      </button>
-      <div className="mt-10 grid max-w-3xl gap-3 sm:grid-cols-3">
+      <Card className={`launch-upload group relative mt-12 w-full max-w-3xl overflow-hidden border p-0 transition-all duration-300 hover:-translate-y-1 ${dragging ? 'border-[hsl(var(--accent))] bg-[hsl(var(--primary)/.06)] shadow-[var(--shadow-lifted)]' : 'border-[hsl(var(--border))] bg-[linear-gradient(180deg,_rgba(255,255,255,0.9),_rgba(248,250,252,0.92))] shadow-[var(--shadow-soft)]'}`}>
+        <button type="button" onClick={onPick} data-testid="button-upload-empty" aria-label="Choose a weekly credit report" className="launch-upload-action group relative flex w-full flex-col items-center justify-center overflow-hidden rounded-xl px-6 py-14 text-center">
+          <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,_hsl(var(--primary))_0%,_hsl(var(--accent))_100%)]" />
+          <div className={`launch-upload-icon grid size-14 place-items-center rounded-2xl text-[hsl(var(--primary))] transition-transform group-hover:-translate-y-1 ${dragging ? 'bg-[hsl(var(--accent)/.28)]' : 'bg-[linear-gradient(135deg,_hsl(var(--primary)/.12),_hsl(var(--accent)/.14))]'}`}><UploadCloud size={26} strokeWidth={1.8} /></div>
+          <p className="mt-5 font-display text-[19px] font-semibold">Choose a weekly report</p>
+          <p className="mt-2 text-[13px] text-[hsl(var(--muted-foreground))]">{dragging ? 'Release to start the analysis' : 'or drag and drop it here'}</p>
+          <div className="mt-5 flex items-center gap-2">
+            <Badge variant="secondary" className="text-[10px] uppercase tracking-[.12em]">.xlsx</Badge>
+            <Badge variant="secondary" className="text-[10px] uppercase tracking-[.12em]">.xls</Badge>
+            <Badge variant="secondary" className="text-[10px] uppercase tracking-[.12em]">.csv</Badge>
+          </div>
+        </button>
+      </Card>
+      <div className="launch-features mt-10 grid max-w-3xl gap-3 sm:grid-cols-3">
         <MiniContract icon={Database} label="Input" value="OrderLog worksheet" />
         <MiniContract icon={Table2} label="Required fields" value="4 columns" />
         <MiniContract icon={ShieldCheck} label="Data handling" value="Local only" />
       </div>
-      <div className="mt-10 flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-3 border-t border-[hsl(var(--border))] pt-5 text-[11px] text-[hsl(var(--muted-foreground))]">
+      <div className="launch-steps mt-10 flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-3 border-t border-[hsl(var(--border))] pt-5 text-[11px] text-[hsl(var(--muted-foreground))]">
         {['Upload', 'Review signals', 'Export workbook'].map((step, index) => <div key={step} className="flex items-center gap-2"><span className="grid size-5 place-items-center rounded-full bg-[hsl(var(--primary)/.1)] font-mono text-[10px] font-medium text-[hsl(var(--primary))]">{index + 1}</span><span>{step}</span>{index < 2 && <ArrowRight size={13} className="ml-2 opacity-40" />}</div>)}
       </div>
     </section>
@@ -216,7 +232,7 @@ function EmptyState({ onPick, dragging }: { onPick: () => void; dragging: boolea
 }
 
 function MiniContract({ icon: Icon, label, value }: { icon: typeof Database; label: string; value: string }) {
-  return <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.55)] px-4 py-3"><Icon size={15} className="text-[hsl(var(--primary))]" /><p className="mt-3 font-mono text-[10px] uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">{label}</p><p className="mt-1 text-[13px] font-semibold">{value}</p></div>;
+  return <div className="launch-feature rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.55)] px-4 py-3"><Icon size={15} className="text-[hsl(var(--primary))]" /><p className="mt-3 font-mono text-[10px] uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">{label}</p><p className="mt-1 text-[13px] font-semibold">{value}</p></div>;
 }
 
 function ParsingState({ filename }: { filename: string }) {
@@ -260,11 +276,28 @@ function InvalidState({ message, missingColumns, onRetry }: { message: string; m
 }
 
 function KpiCard({ label, value, note, tone = 'default', testId }: { label: string; value: string; note: string; tone?: 'default' | 'warning'; testId: string }) {
-  return <div data-testid={testId} className={`surface-lift rounded-xl border bg-[hsl(var(--card))] p-5 ${tone === 'warning' ? 'border-[hsl(var(--accent)/.48)]' : 'border-[hsl(var(--border))]'}`}><div className="flex items-start justify-between gap-3"><p className="font-mono text-[11px] uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">{label}</p>{tone === 'warning' && <AlertTriangle size={16} className="text-[hsl(var(--accent-foreground))] fill-[hsl(var(--accent))]" />}</div><p className="mt-4 font-display text-[2.15rem] font-bold leading-none tracking-[-.04em]">{value}</p><p className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">{note}</p></div>;
+  return (
+    <Card data-testid={testId} className={`surface-lift overflow-hidden border p-5 ${tone === 'warning' ? 'border-[hsl(var(--accent)/.45)] bg-[linear-gradient(180deg,_rgba(251,146,60,0.06),_rgba(255,255,255,0.98))]' : 'border-[hsl(var(--border))] bg-[linear-gradient(180deg,_rgba(255,255,255,0.96),_rgba(248,250,252,0.98))]'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="font-mono text-[11px] uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">{label}</p>
+        {tone === 'warning' && <Badge variant="destructive" className="text-[9px] uppercase tracking-[.08em]">Review</Badge>}
+      </div>
+      <p className="mt-4 break-words font-display text-[clamp(1.25rem,2vw,2.15rem)] font-bold leading-none tracking-[-.04em] text-[hsl(var(--foreground))]">{value}</p>
+      <p className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">{note}</p>
+    </Card>
+  );
 }
 
 function SectionHeading({ eyebrow, title, count, id }: { eyebrow: string; title: string; count?: string; id: string }) {
-  return <div id={id} className="mb-5 flex scroll-mt-28 items-end justify-between gap-4"><div><p className="font-mono text-[11px] uppercase tracking-[.18em] text-[hsl(var(--primary))]">{eyebrow}</p><h2 className="mt-1 font-display text-[1.7rem] font-bold tracking-[-.035em]">{title}</h2></div>{count && <span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1.5 font-mono text-[11px] font-medium text-[hsl(var(--foreground)/.72)]">{count}</span>}</div>;
+  return (
+    <div id={id} className="mb-5 flex scroll-mt-28 items-end justify-between gap-4">
+      <div>
+        <p className="font-mono text-[11px] uppercase tracking-[.18em] text-[hsl(var(--primary))]">{eyebrow}</p>
+        <h2 className="mt-1 font-display text-[1.7rem] font-bold tracking-[-.035em]">{title}</h2>
+      </div>
+      {count && <Badge variant="secondary" className="rounded-full px-3 py-1.5 font-mono text-[11px] font-medium text-[hsl(var(--foreground)/.74)]">{count}</Badge>}
+    </div>
+  );
 }
 
 function DataTable({ headers, rows, emptyText, testId }: { headers: string[]; rows: (string | number)[][]; emptyText: string; testId: string }) {
@@ -278,7 +311,7 @@ function AuditTable({ rows, emptyText, testId }: { rows: UserDailyRow[]; emptyTe
 function SignalCharts({ result, selectedFoodcourt }: { result: AnalysisResult; selectedFoodcourt: string }) {
   const [hiddenFoodcourts, setHiddenFoodcourts] = useState<string[]>([]);
   const foodcourts = selectedFoodcourt === 'all' ? result.foodcourtMetrics.map((row) => row.Foodcourt) : [selectedFoodcourt];
-  const colors = ['#147ea6', '#e76f51', '#5b5bd6', '#2a9d8f', '#d97706', '#b23a48', '#64748b', '#7c3aed'];
+  const colors = ['#0284c7', '#f97316', '#4f46e5', '#0d9488', '#d97706', '#db2777', '#475569', '#7c3aed', '#65a30d', '#0891b2', '#ea580c', '#9333ea', '#16a34a', '#e11d48'];
   const dailyGroups = new Map<string, Map<string, number>>();
   result.userDaily.forEach((row) => {
     if (selectedFoodcourt !== 'all' && row.Foodcourt !== selectedFoodcourt) return;
@@ -286,9 +319,10 @@ function SignalCharts({ result, selectedFoodcourt }: { result: AnalysisResult; s
     group.set(row.Foodcourt, (group.get(row.Foodcourt) ?? 0) + row['Daily User Credits']);
     dailyGroups.set(row.dateKey, group);
   });
-  const dailyData = selectedFoodcourt === 'all'
-    ? [...dailyGroups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([dateKey, values]) => { const date = new Date(`${dateKey}T00:00:00`); return { label: `${date.toLocaleDateString('en-US', { weekday: 'short' })} ${formatDate(date)}`, ...Object.fromEntries(values) }; })
-    : result.dailyMetrics.map((row) => ({ label: `${row['Week Day'].slice(0, 3)} ${formatDate(row.Date)}`, [selectedFoodcourt]: row['Total Credits'] }));
+  const dailyData = [...dailyGroups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([dateKey, values]) => {
+    const date = new Date(`${dateKey}T00:00:00`);
+    return { label: formatDate(date), ...Object.fromEntries(values) };
+  });
   const weekdayData = result.weekdaySummary.map((row) => ({
     label: row['Week Day'].slice(0, 3),
     credits: row['Total Credits'],
@@ -302,24 +336,38 @@ function SignalCharts({ result, selectedFoodcourt }: { result: AnalysisResult; s
   };
 
   return (
-    <section className="mt-8 grid gap-5 xl:grid-cols-[1.4fr_.9fr]" aria-label="Credit analysis charts">
+    <section className="mt-8 grid gap-5 xl:grid-cols-[1.4fr_.9fr]" aria-label="Credit pattern charts">
       <div className="surface-lift rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 md:p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--primary))]">Trend line</p><h2 className="mt-1 font-display text-lg font-bold tracking-[-.03em]">Credit activity over time</h2><p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">Daily credits by foodcourt. Click a color to show or hide a location.</p></div>
-          <div className="flex max-w-[55%] flex-wrap justify-end gap-x-3 gap-y-1.5 pt-1">{foodcourts.map((foodcourt, index) => { const hidden = hiddenFoodcourts.includes(foodcourt); return <button key={foodcourt} type="button" onClick={() => setHiddenFoodcourts((current) => hidden ? current.filter((item) => item !== foodcourt) : [...current, foodcourt])} aria-pressed={!hidden} aria-label={`${hidden ? 'Show' : 'Hide'} ${foodcourt}`} className={`flex items-center gap-1.5 text-[10px] transition-opacity ${hidden ? 'opacity-35' : 'text-[hsl(var(--foreground)/.8)]'}`}><span className="size-2 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />{foodcourt}</button>; })}</div>
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--primary))]">Trend line</p>
+          <h2 className="mt-1 font-display text-lg font-bold tracking-[-.03em]">Credit activity over time</h2>
+          <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">Daily credits by foodcourt.</p>
         </div>
-        <div className="mt-5 h-[230px] w-full">
-          {dailyData.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={dailyData} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}>
+        <div className="mt-4 h-[230px] w-full">
+          {dailyData.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={dailyData} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 5" vertical={false} />
-            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} dy={8} />
-            <YAxis axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} width={34} />
-            <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: 'hsl(var(--accent))', strokeDasharray: '4 4' }} />
-            {foodcourts.filter((foodcourt) => !hiddenFoodcourts.includes(foodcourt)).map((foodcourt, index) => <Line key={foodcourt} type="monotone" dataKey={foodcourt} name={foodcourt} stroke={colors[index % colors.length]} strokeWidth={2.5} dot={{ r: 3, fill: colors[index % colors.length], strokeWidth: 0 }} activeDot={{ r: 5, stroke: 'hsl(var(--card))', strokeWidth: 2 }} connectNulls />)}
+            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 9 }} minTickGap={24} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 9 }} width={42} tickFormatter={(value) => numeric(Number(value))} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [numeric(Number(value)), name]} />
+            {foodcourts.filter((foodcourt) => !hiddenFoodcourts.includes(foodcourt)).map((foodcourt) => {
+              const index = result.foodcourtMetrics.findIndex((row) => row.Foodcourt === foodcourt);
+              return <Line key={foodcourt} type="monotone" dataKey={foodcourt} name={foodcourt} stroke={colors[(index < 0 ? 0 : index) % colors.length]} strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls />;
+            })}
           </LineChart></ResponsiveContainer> : <div className="grid h-full place-items-center text-[12px] text-[hsl(var(--muted-foreground))]">No valid date data to chart.</div>}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {foodcourts.map((foodcourt) => {
+            const index = result.foodcourtMetrics.findIndex((row) => row.Foodcourt === foodcourt);
+            const hidden = hiddenFoodcourts.includes(foodcourt);
+            return <button key={foodcourt} type="button" onClick={() => setHiddenFoodcourts((current) => hidden ? current.filter((item) => item !== foodcourt) : [...current, foodcourt])} aria-pressed={!hidden}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] transition-opacity ${hidden ? 'opacity-40' : 'border-[hsl(var(--border))] bg-[hsl(var(--background))]'}`}>
+              <span className="size-1.5 rounded-full" style={{ backgroundColor: colors[(index < 0 ? 0 : index) % colors.length] }} />{foodcourt}
+            </button>;
+          })}
         </div>
       </div>
       <div className="surface-lift rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 md:p-6">
-        <div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--primary))]">Pattern check</p><h2 className="mt-1 font-display text-lg font-bold tracking-[-.03em]">Weekday comparison</h2><p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">Where credit demand concentrates.</p></div>
+        <div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--primary))]">Pattern check</p><h2 className="mt-1 font-display text-lg font-bold tracking-[-.03em]">Weekday comparison</h2><p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">Where credit demand concentrates across the report.</p></div>
         <div className="mt-5 h-[230px] w-full">
           {weekdayData.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={weekdayData} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}>
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 5" vertical={false} />
@@ -334,115 +382,207 @@ function SignalCharts({ result, selectedFoodcourt }: { result: AnalysisResult; s
   );
 }
 
-type CreditBarData = {
-  dateKey: string;
-  label: string;
-  foodcourt: string;
-  credits: number;
-  flagged: boolean;
-  color: string;
-};
+function CreditActivity({ result, selectedFoodcourt, onFoodcourtChange, onInspectDate }: { result: AnalysisResult; selectedFoodcourt: string; onFoodcourtChange: (foodcourt: string) => void; onInspectDate: (dateKey: string) => void }) {
+  const [hiddenFoodcourts, setHiddenFoodcourts] = useState<string[]>([]);
+  const [view, setView] = useState<'stacked' | 'proportional' | 'heatmap'>('stacked');
+  const foodcourts = selectedFoodcourt === 'all'
+    ? result.foodcourtMetrics.map((row) => row.Foodcourt)
+    : [selectedFoodcourt];
+  const colors = ['#0284c7', '#f97316', '#4f46e5', '#0d9488', '#d97706', '#db2777', '#475569', '#7c3aed', '#65a30d', '#0891b2', '#ea580c', '#9333ea', '#16a34a', '#e11d48'];
+  const colorFor = (foodcourt: string) => {
+    const index = result.foodcourtMetrics.findIndex((row) => row.Foodcourt === foodcourt);
+    return colors[(index < 0 ? 0 : index) % colors.length];
+  };
+  const dailyGroups = new Map<string, { date: Date; totalCredits: number; orders: number; creditsByFoodcourt: Map<string, number> }>();
+  result.userDaily.forEach((row) => {
+    if (selectedFoodcourt !== 'all' && row.Foodcourt !== selectedFoodcourt) return;
+    const group = dailyGroups.get(row.dateKey) ?? {
+      date: row.Date,
+      totalCredits: 0,
+      orders: 0,
+      creditsByFoodcourt: new Map<string, number>(),
+    };
+    group.totalCredits += row['Daily User Credits'];
+    group.creditsByFoodcourt.set(row.Foodcourt, (group.creditsByFoodcourt.get(row.Foodcourt) ?? 0) + row['Daily User Credits']);
+    dailyGroups.set(row.dateKey, group);
+  });
+  result.rawData.forEach((row) => {
+    if (!row.Date || (selectedFoodcourt !== 'all' && row.Foodcourt !== selectedFoodcourt)) return;
+    const group = dailyGroups.get(dateKeyFor(row.Date));
+    if (group) group.orders += 1;
+  });
+  const flaggedDates = new Set([...result.over200, ...result.vendorCreditUsers]
+    .filter((row) => selectedFoodcourt === 'all' || row.Foodcourt === selectedFoodcourt)
+    .map((row) => row.dateKey));
+  const topDays = [...dailyGroups.entries()]
+    .sort(([, left], [, right]) => right.totalCredits - left.totalCredits)
+    .slice(0, 7)
+    .map(([dateKey, group]) => ({
+      dateKey,
+      date: group.date,
+      totalCredits: group.totalCredits,
+      orders: group.orders,
+      creditsByFoodcourt: [...group.creditsByFoodcourt.entries()].filter(([name]) => !hiddenFoodcourts.includes(name)),
+      isFlagged: flaggedDates.has(dateKey),
+    }));
+  const totalForScope = [...dailyGroups.values()].reduce((sum, row) => sum + row.totalCredits, 0);
+  const topDayShare = totalForScope ? topDays.reduce((sum, row) => sum + row.totalCredits, 0) / totalForScope * 100 : 0;
+  const sortedTotals = [...dailyGroups.values()].map((row) => row.totalCredits).sort((left, right) => left - right);
+  const peak = Math.max(...sortedTotals, 0);
+  const middle = Math.floor(sortedTotals.length / 2);
+  const median = sortedTotals.length
+    ? sortedTotals.length % 2 ? sortedTotals[middle] : (sortedTotals[middle - 1] + sortedTotals[middle]) / 2
+    : 0;
+  const averageOrders = topDays.length ? topDays.reduce((sum, row) => sum + row.orders, 0) / topDays.length : 0;
+  const creditsByFoodcourt = new Map<string, number>();
+  dailyGroups.forEach((group) => group.creditsByFoodcourt.forEach((credits, foodcourt) => {
+    creditsByFoodcourt.set(foodcourt, (creditsByFoodcourt.get(foodcourt) ?? 0) + credits);
+  }));
+  const topFoodcourt = [...creditsByFoodcourt.entries()].sort(([, left], [, right]) => right - left)[0];
+  const topFoodcourtShare = topFoodcourt && totalForScope ? topFoodcourt[1] / totalForScope * 100 : 0;
+  const maxCreditsByFoodcourt = new Map<string, number>();
+  dailyGroups.forEach((group) => group.creditsByFoodcourt.forEach((credits, foodcourt) => {
+    maxCreditsByFoodcourt.set(foodcourt, Math.max(maxCreditsByFoodcourt.get(foodcourt) ?? 0, credits));
+  }));
 
-const CreditOrb = memo(function CreditOrb({ bar, position, radius, active, lightweight, onHover }: { bar: CreditBarData; position: [number, number, number]; radius: number; active: boolean; lightweight: boolean; onHover: (bar: CreditBarData | null) => void }) {
-  return <mesh
-    position={[position[0], position[1] + (active ? 0.14 : 0), position[2]]}
-    scale={active ? 1.14 : 1}
-    onPointerOver={(event) => { event.stopPropagation(); onHover(bar); }}
-    onPointerLeave={() => onHover(null)}
-    castShadow={!lightweight}
-  >
-    <Sphere args={[radius, lightweight ? 8 : 16, lightweight ? 6 : 12]} castShadow={!lightweight} receiveShadow={!lightweight}>
-      <meshStandardMaterial color={bar.flagged ? '#c2415d' : bar.color} roughness={0.24} metalness={0.18} />
-    </Sphere>
-  </mesh>;
-});
+  return (
+    <section className="mt-8 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-[var(--shadow-soft)]" aria-label="Daily credit highlights">
+      <div className="p-5 md:p-6">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="text-[9px] uppercase tracking-[.1em]">Peak volume analysis</Badge>
+              <Badge variant="secondary" className="text-[9px]">Reconciled daily data</Badge>
+            </div>
+            <h2 className="mt-2 font-display text-2xl font-bold tracking-[-.04em]">Highest-credit days</h2>
+            <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">
+              Top 7 days by credits across {selectedFoodcourt === 'all' ? `${result.foodcourtCount} foodcourts` : selectedFoodcourt}.
+            </p>
+            <p className="mt-2 text-[11px]">
+              <span className="font-medium text-amber-700">Amber: audit flags</span>
+              <span className="mx-2 text-[hsl(var(--border))]">·</span>
+              <span className="font-medium text-emerald-700">Green: no critical audit breaches</span>
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] p-1" aria-label="Peak day chart display">
+              {([
+                ['stacked', 'Stacked'],
+                ['proportional', 'Proportional'],
+                ['heatmap', 'Location heatmap'],
+              ] as const).map(([value, label]) => (
+                <button key={value} type="button" onClick={() => setView(value)} aria-pressed={view === value}
+                  className={`rounded-md px-2.5 py-1.5 text-[10px] font-medium transition-colors ${view === value ? 'bg-[hsl(var(--primary))] text-white shadow-sm' : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="sr-only" htmlFor="peak-day-foodcourt">Peak day foodcourt scope</label>
+            <select id="peak-day-foodcourt" value={selectedFoodcourt} onChange={(event) => { setHiddenFoodcourts([]); onFoodcourtChange(event.target.value); }}
+              className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 text-[11px] font-medium outline-none focus:border-[hsl(var(--primary)/.6)]">
+              <option value="all">All foodcourts ({result.foodcourtCount})</option>
+              {result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}
+            </select>
+          </div>
+        </div>
 
-function ThreeDCreditLandscape({ result, selectedFoodcourt }: { result: AnalysisResult; selectedFoodcourt: string }) {
-  const [hoveredBar, setHoveredBar] = useState<CreditBarData | null>(null);
-  const palette = ['#0f766e', '#d97706', '#2563eb', '#be405b', '#4f7d55', '#8b5e34'];
-  const bars = useMemo(() => {
-    const rows = result.userDaily.filter((row) => selectedFoodcourt === 'all' || row.Foodcourt === selectedFoodcourt);
-    const grouped = new Map<string, CreditBarData>();
-    rows.forEach((row) => {
-      const key = `${row.dateKey}-${row.Foodcourt}`;
-      const existing = grouped.get(key);
-      const credits = (existing?.credits ?? 0) + row['Daily User Credits'];
-      grouped.set(key, {
-        dateKey: row.dateKey,
-        label: formatDate(row.Date),
-        foodcourt: row.Foodcourt,
-        credits,
-        flagged: Boolean(existing?.flagged || row['Over 200'] || row['Vendor Used Credit']),
-        color: '',
-      });
-    });
-    return [...grouped.values()].sort((left, right) => left.dateKey.localeCompare(right.dateKey) || left.foodcourt.localeCompare(right.foodcourt));
-  }, [result.userDaily, selectedFoodcourt]);
-  const dates = [...new Set(bars.map((bar) => bar.dateKey))];
-  const foodcourts = [...new Set(bars.map((bar) => bar.foodcourt))];
-  const foodcourtColors = new Map(foodcourts.map((foodcourt, index) => [foodcourt, palette[index % palette.length]]));
-  const lightweight = bars.length > 220;
-  const dateBucketSize = Math.max(1, Math.ceil(dates.length / 32));
-  const visualBars = useMemo(() => {
-    if (dateBucketSize === 1) return bars;
-    const sourceDates = [...new Set(bars.map((bar) => bar.dateKey))];
-    const buckets = new Map<string, CreditBarData>();
-    bars.forEach((bar) => {
-      const dateBucket = Math.floor(sourceDates.indexOf(bar.dateKey) / dateBucketSize);
-      const key = `${dateBucket}-${bar.foodcourt}`;
-      const existing = buckets.get(key);
-      buckets.set(key, {
-        ...bar,
-        dateKey: `${dateBucket}`,
-        label: existing ? `${existing.label} - ${bar.label}` : bar.label,
-        credits: (existing?.credits ?? 0) + bar.credits,
-        flagged: Boolean(existing?.flagged || bar.flagged),
-      });
-    });
-    return [...buckets.values()];
-  }, [bars, dateBucketSize]);
-  const visualDates = [...new Set(visualBars.map((bar) => bar.dateKey))];
-  const maxCredits = Math.max(...visualBars.map((bar) => bar.credits), 1);
-  const dateIndex = new Map(visualDates.map((date, index) => [date, index]));
-  const foodcourtIndex = new Map(foodcourts.map((foodcourt, index) => [foodcourt, index]));
-  const xOffset = visualDates.length / 2;
-  const zOffset = foodcourts.length / 2;
-  const hoveredVisualBar = hoveredBar ? visualBars.find((bar) => bar.dateKey === hoveredBar.dateKey && bar.foodcourt === hoveredBar.foodcourt) : null;
-  const hoveredIntensity = hoveredVisualBar ? Math.max(0.08, hoveredVisualBar.credits / maxCredits) : 0;
-  const hoveredPosition: [number, number, number] = hoveredVisualBar
-    ? [
-        (dateIndex.get(hoveredVisualBar.dateKey) ?? 0) - xOffset + 0.5,
-        0.28 + hoveredIntensity * 2.7 + 0.45,
-        (foodcourtIndex.get(hoveredVisualBar.foodcourt) ?? 0) - zOffset + 0.5,
-      ]
-    : [0, 0, 0];
-
-  return <section className="relative z-10 mt-8 overflow-visible rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-[var(--shadow-soft)]" aria-label="Three-dimensional credit landscape">
-    <div className="flex flex-col justify-between gap-3 border-b border-[hsl(var(--border))] px-5 py-5 sm:flex-row sm:items-start md:px-6">
-      <div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[hsl(var(--primary))]">Spatial view</p><h2 className="mt-1 font-display text-lg font-bold tracking-[-.03em]">Credit constellation</h2><p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">Each orb maps a date and foodcourt. Larger, higher orbs carry more credit volume.</p></div>
-      <div className="flex shrink-0 items-center gap-3 font-mono d-none text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#0f766e] d-none" />Location colors</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#c2415d]" />Audit flag</span></div>
-    </div>
-    <div className="relative h-[360px] bg-[radial-gradient(circle_at_50%_0%,hsl(var(--primary)/.12),transparent_58%)] sm:h-[430px]">
-      {bars.length ? <Canvas shadows={!lightweight} camera={{ position: [8, 6.6, 10], fov: 40 }} dpr={lightweight ? 1 : [1, 1.5]} style={{ touchAction: 'none' }} onCreated={({ gl }) => { gl.domElement.style.touchAction = 'none'; }}>
-        <color attach="background" args={['#f5f1e9']} />
-        <ambientLight intensity={1.4} />
-        <directionalLight castShadow={!lightweight} position={[4, 8, 5]} intensity={2.2} shadow-mapSize={[lightweight ? 512 : 1024, lightweight ? 512 : 1024]} />
-        <group rotation={[-0.05, 0, 0]}>
-          {visualBars.map((bar) => {
-            const intensity = Math.max(0.08, bar.credits / maxCredits);
-            const height = 0.28 + intensity * 2.7;
-            const radius = 0.12 + intensity * 0.28;
-            return <CreditOrb key={`${bar.dateKey}-${bar.foodcourt}`} bar={{ ...bar, color: foodcourtColors.get(bar.foodcourt) ?? palette[0] }} radius={radius} lightweight={lightweight} active={hoveredBar?.dateKey === bar.dateKey && hoveredBar.foodcourt === bar.foodcourt} position={[(dateIndex.get(bar.dateKey) ?? 0) - xOffset + 0.5, height, (foodcourtIndex.get(bar.foodcourt) ?? 0) - zOffset + 0.5]} onHover={setHoveredBar} />;
+        <div className="mt-5 flex flex-wrap gap-2" aria-label="Filter chart by foodcourt">
+          {foodcourts.map((foodcourt) => {
+            const metric = result.foodcourtMetrics.find((row) => row.Foodcourt === foodcourt);
+            const share = metric && result.totalCredits ? metric['Total Credits'] / result.totalCredits * 100 : 0;
+            const hidden = hiddenFoodcourts.includes(foodcourt);
+            return (
+              <button key={foodcourt} type="button" onClick={() => setHiddenFoodcourts((current) => hidden ? current.filter((item) => item !== foodcourt) : [...current, foodcourt])}
+                aria-pressed={!hidden} aria-label={`${hidden ? 'Show' : 'Hide'} ${foodcourt}`}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[9px] font-medium transition-opacity ${hidden ? 'opacity-40' : 'border-[hsl(var(--border))] bg-[hsl(var(--background))]'}`}>
+                <span className="size-2 rounded-full" style={{ backgroundColor: colorFor(foodcourt) }} />
+                <span>{foodcourt}</span>
+                {metric && <span className="font-mono text-[hsl(var(--muted-foreground))]">{share.toFixed(1)}%</span>}
+              </button>
+            );
           })}
-          <Grid args={[Math.max(visualDates.length, 4), Math.max(foodcourts.length, 4)]} cellSize={1} cellThickness={lightweight ? 0.35 : 0.6} cellColor="#b8c8cf" sectionSize={5} sectionThickness={1.1} sectionColor="#7f9ca8" fadeDistance={22} fadeStrength={1.3} position={[-0.5, 0, -0.5]} />
-          {!lightweight && <ContactShadows opacity={0.28} scale={Math.max(visualDates.length, foodcourts.length) + 4} blur={2.8} far={5} resolution={512} position={[0, 0.02, 0]} />}
-        </group>
-        {hoveredBar && hoveredVisualBar && <Html position={hoveredPosition} center distanceFactor={7} zIndexRange={[100, 0]} style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}><div className="min-w-[150px] rounded-lg border border-[hsl(var(--border))] bg-white/95 px-3 py-2 text-left shadow-xl"><p className="font-mono text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">{hoveredBar.label}</p><p className="mt-1 text-[12px] font-semibold">{hoveredBar.foodcourt}</p><p className="mt-1 font-mono text-[12px] text-[hsl(var(--primary))]">{numeric(hoveredBar.credits)} credits</p>{hoveredBar.flagged && <p className="mt-1 text-[10px] font-semibold uppercase tracking-[.08em] text-[hsl(var(--accent-foreground))]">Audit flag</p>}</div></Html>}
-        <OrbitControls makeDefault enableDamping dampingFactor={0.08} rotateSpeed={0.7} zoomSpeed={0.9} enablePan={false} minDistance={4} maxDistance={24} minPolarAngle={0.35} maxPolarAngle={1.5} target={[0, 0.8, 0]} />
-      </Canvas> : <div className="grid h-full place-items-center px-6 text-center text-[12px] text-[hsl(var(--muted-foreground))]">No valid credit data is available for the selected foodcourt.</div>}
-      <div className="pointer-events-none absolute bottom-4 left-4 rounded-md bg-white/70 px-2 py-1 font-mono text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Drag to orbit · scroll to zoom</div>
-    </div>
-  </section>;
+        </div>
+
+        <div className="mt-5 space-y-2.5">
+          {topDays.length ? topDays.map((row) => {
+            const positiveTotal = row.creditsByFoodcourt.reduce((sum, [, credits]) => sum + Math.max(0, credits), 0);
+            const scaleTotal = view === 'proportional' ? positiveTotal : peak;
+            return (
+              <div key={row.dateKey} className="grid gap-2 rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-[hsl(var(--border))] hover:bg-[hsl(var(--background)/.6)] sm:grid-cols-[82px_minmax(0,1fr)_112px] sm:items-center">
+                <div className="flex items-center gap-2">
+                  <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-center">
+                    <span className="text-[9px] leading-3 text-[hsl(var(--muted-foreground))]">{row.date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
+                    <span className="font-mono text-[12px] font-bold leading-3">{String(row.date.getDate()).padStart(2, '0')}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold">{formatDate(row.date)}</p>
+                    <p className="text-[9px] text-[hsl(var(--muted-foreground))]">{numeric(row.orders)} orders</p>
+                  </div>
+                </div>
+
+                {view === 'heatmap' ? (
+                  <div className="flex min-w-0 gap-1 overflow-x-auto py-1" aria-label={`Foodcourt credits for ${formatDate(row.date)}`}>
+                    {foodcourts.filter((name) => !hiddenFoodcourts.includes(name)).map((name) => {
+                      const credits = row.creditsByFoodcourt.find(([court]) => court === name)?.[1] ?? 0;
+                      const maximum = maxCreditsByFoodcourt.get(name) ?? 0;
+                      const intensity = maximum ? Math.max(0.1, credits / maximum) : 0;
+                      return <div key={name} title={`${name}: ${numeric(credits)} credits`} className="grid h-8 min-w-10 flex-1 place-items-center rounded px-1 text-[8px] font-semibold"
+                        style={{ backgroundColor: credits > 0 ? `color-mix(in srgb, ${colorFor(name)} ${Math.round(intensity * 75)}%, white)` : 'hsl(var(--secondary))', color: intensity > 0.55 ? 'white' : 'hsl(var(--foreground))' }}>
+                        {credits > 0 ? numeric(credits) : '—'}
+                      </div>;
+                    })}
+                  </div>
+                ) : (
+                  <div className={`flex h-7 min-w-0 overflow-hidden rounded-md bg-[hsl(var(--secondary)/.7)] ${row.isFlagged ? 'ring-2 ring-amber-500/70 ring-offset-1' : ''}`}
+                    aria-label={`${formatDate(row.date)} foodcourt credit distribution`}>
+                    {row.creditsByFoodcourt.filter(([, credits]) => credits > 0).map(([foodcourt, credits]) => {
+                      const width = scaleTotal ? Math.max(credits / scaleTotal * 100, 0) : 0;
+                      if (!width) return null;
+                      return <div key={foodcourt} title={`${foodcourt}: ${numeric(credits)} credits`}
+                        className="flex h-full min-w-0 items-center justify-center overflow-hidden px-1 text-[8px] font-semibold text-white"
+                        style={{ width: `${width}%`, backgroundColor: colorFor(foodcourt) }}>
+                        {width >= 12 ? numeric(credits) : ''}
+                      </div>;
+                    })}
+                    {!row.creditsByFoodcourt.some(([, credits]) => credits > 0) && <span className="px-3 text-[9px] text-[hsl(var(--muted-foreground))]">No positive credit volume</span>}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 sm:justify-end">
+                  <div className="text-right">
+                    <p className="font-mono text-[11px] font-bold text-[hsl(var(--primary))]">{numeric(row.totalCredits)}</p>
+                    <p className="text-[8px] text-[hsl(var(--muted-foreground))]">{peak ? `${(row.totalCredits / peak * 100).toFixed(1)}% of peak` : '—'}</p>
+                  </div>
+                  <button type="button" onClick={() => onInspectDate(row.dateKey)} aria-label={`Inspect audit log for ${formatDate(row.date)}`}
+                    className="rounded-md px-2 py-1 text-[9px] font-semibold text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/.08)]">Inspect</button>
+                </div>
+              </div>
+            );
+          }) : <p className="py-10 text-center text-[12px] text-[hsl(var(--muted-foreground))]">No valid date data available.</p>}
+        </div>
+
+        <div className="mt-5 grid gap-3 rounded-xl border border-[hsl(var(--primary)/.12)] bg-[hsl(var(--primary)/.04)] p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div>
+            <p className="text-[11px] font-semibold">Peak-day summary</p>
+            <p className="mt-1 text-[10px] text-[hsl(var(--muted-foreground))]">
+              Top {topDays.length} days make up {topDayShare.toFixed(1)}% of tracked credits
+              {' · '}Median daily volume: {numeric(median)}
+              {' · '}Avg. orders on peak days: {numeric(averageOrders)}
+              {topFoodcourt && ` · Leading location: ${topFoodcourt[0]} (${topFoodcourtShare.toFixed(1)}%)`}
+            </p>
+          </div>
+          <button type="button" onClick={() => onInspectDate(topDays[0]?.dateKey ?? '')} disabled={!topDays.length}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[hsl(var(--primary))] px-3 py-2 text-[10px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+            <Search size={12} /> Deep dive audit
+          </button>
+        </div>
+        <div className="mt-3 flex justify-between font-mono text-[8px] text-[hsl(var(--muted-foreground))]">
+          <span>{view === 'proportional' ? 'Each bar normalized to 100%' : `0 ${view === 'heatmap' ? 'credits' : 'credits'}`}</span>
+          <span>{view === 'proportional' ? 'Share of day total' : `Peak ${numeric(peak)} credits`}</span>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function DataQuality({ result }: { result: AnalysisResult }) {
@@ -463,10 +603,18 @@ function DataQuality({ result }: { result: AnalysisResult }) {
   </section>;
 }
 
-function Overview({ result, onJump, selectedFoodcourt, onFoodcourtChange }: { result: AnalysisResult; onJump: (target: string) => void; selectedFoodcourt: string; onFoodcourtChange: (foodcourt: string) => void }) {
+function Overview({ result, onJump, onInspectDate, selectedFoodcourt, onFoodcourtChange }: { result: AnalysisResult; onJump: (target: string) => void; onInspectDate: (dateKey: string) => void; selectedFoodcourt: string; onFoodcourtChange: (foodcourt: string) => void }) {
   const exceptionCount = result.over200.length + result.vendorCreditUsers.length;
   const dailyMetrics = dailyMetricsForFoodcourt(result, selectedFoodcourt);
   const dailyMax = Math.max(...dailyMetrics.map((row) => row['Total Credits']), 0);
+  const creditsByFoodcourt = new Map<string, number>();
+  result.rawData.forEach((row) => creditsByFoodcourt.set(row.Foodcourt, (creditsByFoodcourt.get(row.Foodcourt) ?? 0) + row.Credits));
+  const topFoodcourt = [...creditsByFoodcourt.entries()].sort(([, left], [, right]) => right - left)[0];
+  const topFoodcourtShare = topFoodcourt && result.totalCredits
+    ? `${(Math.round(topFoodcourt[1] / result.totalCredits * 1000) / 10).toFixed(1)}%`
+    : '0%';
+  const peakDay = [...result.dailyMetrics].sort((left, right) => right['Total Credits'] - left['Total Credits'])[0];
+  const flaggedDayCount = new Set([...result.over200, ...result.vendorCreditUsers].map((row) => row.dateKey)).size;
   return (
     <>
       <section id="overview-section" className="scroll-mt-28 animate-rise-in">
@@ -476,20 +624,18 @@ function Overview({ result, onJump, selectedFoodcourt, onFoodcourtChange }: { re
         </div>
         {result.notices.length > 0 && <div data-testid="status-format-notice" className="mt-7 space-y-2 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.1)] px-4 py-3.5 text-[12px] leading-5 text-[hsl(var(--foreground)/.8)]">{result.notices.map((notice, index) => <div key={notice} className="flex items-start gap-3"><Info size={16} className="mt-0.5 shrink-0 text-[hsl(var(--accent-foreground))]" /><span data-testid={`text-format-notice-${index}`}>{notice}</span></div>)}</div>}
         {result.invalidDates > 0 && <div data-testid="status-invalid-dates" className="mt-7 flex items-start gap-3 rounded-xl border border-[hsl(var(--accent)/.45)] bg-[hsl(var(--accent)/.1)] px-4 py-3.5 text-[12px] leading-5 text-[hsl(var(--foreground)/.8)]"><Info size={16} className="mt-0.5 shrink-0 text-[hsl(var(--accent-foreground))]" /><span><strong>{numeric(result.invalidDates)} rows</strong> have an invalid or missing Date and were excluded from date-based metrics.</span></div>}
-        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <KpiCard label="Total users" value={numeric(result.totalUsers)} note="Distinct users in file" testId="metric-total-users" />
-          <KpiCard label="Credit users" value={numeric(result.creditUsers)} note="Users with credits > 0" testId="metric-credit-users" />
-          <KpiCard label="Total credits" value={numeric(result.totalCredits)} note="Across all source rows" testId="metric-total-credits" />
-          <KpiCard label="Foodcourts" value={numeric(result.foodcourtCount)} note="Locations detected" testId="metric-foodcourts" />
-          <KpiCard label="Users >200" value={numeric(new Set(result.over200.map((row) => row.User)).size)} note="Daily threshold exceptions" tone={result.over200.length ? 'warning' : 'default'} testId="metric-over-200" />
-          <KpiCard label="Vendor credit users" value={numeric(new Set(result.vendorCreditUsers.map((row) => row.User)).size)} note="VendorNoCredit with usage" tone={result.vendorCreditUsers.length ? 'warning' : 'default'} testId="metric-vendor-users" />
+        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard label="Total credits tracked" value={numeric(result.totalCredits)} note={`${numeric(result.sourceRows)} source rows processed`} testId="metric-total-credits" />
+          <KpiCard label="Top foodcourt" value={topFoodcourt?.[0] ?? '—'} note={`${topFoodcourtShare} of credits`} testId="metric-foodcourts" />
+          <KpiCard label="Peak single-day total" value={numeric(peakDay?.['Total Credits'] ?? 0)} note={peakDay ? formatDate(peakDay.Date) : 'No valid date data'} testId="metric-peak-day" />
+          <KpiCard label="Audit flags" value={`${numeric(flaggedDayCount)} days`} note="Days with exceptions" tone={flaggedDayCount ? 'warning' : 'default'} testId="metric-audit-days" />
         </div>
         <div className={`mt-5 flex flex-col gap-4 rounded-xl border p-5 sm:flex-row sm:items-center sm:justify-between ${exceptionCount ? 'border-[hsl(var(--accent)/.52)] bg-[hsl(var(--accent)/.12)]' : 'border-[hsl(var(--primary)/.2)] bg-[hsl(var(--primary)/.07)]'}`} data-testid="status-audit-summary">
           <div className="flex items-start gap-3"><div className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg ${exceptionCount ? 'bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))]' : 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'}`}>{exceptionCount ? <AlertTriangle size={16} /> : <Check size={17} />}</div><div><p className="text-[13px] font-semibold">{exceptionCount ? `${numeric(exceptionCount)} audit ${exceptionCount === 1 ? 'exception needs' : 'exceptions need'} review` : 'No audit exceptions found'}</p><p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">{exceptionCount ? 'The queue below is sorted by date and daily credit impact.' : 'Thresholds checked: over 200 credits per day and VendorNoCredit usage.'}</p></div></div>{exceptionCount > 0 && <button type="button" onClick={() => onJump('audit-section')} data-testid="button-review-exceptions" className="flex items-center gap-2 self-start rounded-lg bg-[hsl(var(--foreground))] px-3 py-2 text-[12px] font-semibold text-[hsl(var(--card))] transition-transform hover:-translate-y-px sm:self-auto">Review queue <ArrowRight size={14} /></button>}</div>
       </section>
-      <SignalCharts result={result} selectedFoodcourt={selectedFoodcourt} />
-      <ThreeDCreditLandscape result={result} selectedFoodcourt={selectedFoodcourt} />
       <DataQuality result={result} />
+      <SignalCharts result={result} selectedFoodcourt={selectedFoodcourt} />
+      <CreditActivity result={result} selectedFoodcourt={selectedFoodcourt} onFoodcourtChange={onFoodcourtChange} onInspectDate={onInspectDate} />
       <section className="mt-14">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><SectionHeading id="daily-section" eyebrow="At a glance" title="Daily rhythm" count={`${dailyMetrics.length} active days`} /><label className="flex items-center gap-2 text-[11px] text-[hsl(var(--muted-foreground))]"><span className="font-mono text-[10px] uppercase tracking-[.12em]">Foodcourt</span><select value={selectedFoodcourt} onChange={(event) => onFoodcourtChange(event.target.value)} data-testid="select-daily-foodcourt" aria-label="Filter daily rhythm by foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] font-medium text-[hsl(var(--foreground))] outline-none focus:border-[hsl(var(--primary)/.7)] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]"><option value="all">All foodcourts</option>{result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}</select></label></div>
         <div className="grid gap-5 xl:grid-cols-[1.45fr_.85fr]">
@@ -611,15 +757,16 @@ function FoodcourtSection({ result, selectedFoodcourt, onFoodcourtChange }: { re
   );
 }
 
-function AuditSection({ result }: { result: AnalysisResult }) {
+function AuditSection({ result, focusDate, onClearFocus }: { result: AnalysisResult; focusDate: string | null; onClearFocus: () => void }) {
   const [search, setSearch] = useState('');
   const [foodcourt, setFoodcourt] = useState('all');
   const matches = (row: UserDailyRow) =>
+    (!focusDate || row.dateKey === focusDate) &&
     (foodcourt === 'all' || row.Foodcourt === foodcourt) &&
     `${row.Foodcourt} ${row.User} ${row['User Type']} ${row['Week Day']}`.toLowerCase().includes(search.toLowerCase());
   const over200 = result.over200.filter(matches);
   const vendor = result.vendorCreditUsers.filter(matches);
-  return <section id="audit-section" className="mt-14 scroll-mt-28"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end p-4"><SectionHeading id="audit-heading" eyebrow="Exceptions first" title="Audit queue" count={`${result.over200.length + result.vendorCreditUsers.length} flags`} /><div className="flex flex-col gap-2 sm:flex-row"><select value={foodcourt} onChange={(event) => setFoodcourt(event.target.value)} data-testid="select-audit-foodcourt" aria-label="Filter audit queue by foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] outline-none focus:border-[hsl(var(--primary)/.5)]"><option value="all">All foodcourts</option>{result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}</select><div className="relative"><Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-[hsl(var(--muted-foreground))]" /><input value={search} onChange={(event) => setSearch(event.target.value)} data-testid="input-audit-search" aria-label="Filter audit queue" placeholder="Filter users…" className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] py-2 pl-9 pr-3 text-[12px] outline-none transition-colors placeholder:text-[hsl(var(--muted-foreground)/.7)] focus:border-[hsl(var(--primary)/.5)] sm:w-48" /></div></div></div><div className="mb-5 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-[hsl(var(--accent)/.5)] bg-[hsl(var(--accent)/.1)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--accent-foreground))]">Threshold review</p><p className="mt-1 text-[13px] font-semibold">{numeric(over200.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">Daily credits above 200.</p></div><div className="rounded-lg border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.07)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--destructive))]">Policy review</p><p className="mt-1 text-[13px] font-semibold">{numeric(vendor.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">VendorNoCredit users with usage.</p></div></div><div className="grid gap-5 xl:grid-cols-2"><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--accent))]" /><h3 className="text-[13px] font-semibold">Over 200 credits in a day</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{over200.length}</span></div><AuditTable testId="table-over-200" rows={over200} emptyText={search || foodcourt !== 'all' ? 'No matching threshold exceptions.' : 'No users exceeded 200 credits.'} /></div><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--destructive))]" /><h3 className="text-[13px] font-semibold">VendorNoCredit with usage</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{vendor.length}</span></div><AuditTable testId="table-vendor-credit" rows={vendor} emptyText={search || foodcourt !== 'all' ? 'No matching vendor exceptions.' : 'No VendorNoCredit users used credits.'} /></div></div></section>;
+  return <section id="audit-section" className="mt-14 scroll-mt-28"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end p-4"><SectionHeading id="audit-heading" eyebrow="Exceptions first" title="Audit queue" count={`${result.over200.length + result.vendorCreditUsers.length} flags`} /><div className="flex flex-col gap-2 sm:flex-row"><select value={foodcourt} onChange={(event) => setFoodcourt(event.target.value)} data-testid="select-audit-foodcourt" aria-label="Filter audit queue by foodcourt" className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-[12px] outline-none focus:border-[hsl(var(--primary)/.5)]"><option value="all">All foodcourts</option>{result.foodcourtMetrics.map((row) => <option key={row.Foodcourt} value={row.Foodcourt}>{row.Foodcourt}</option>)}</select><div className="relative"><Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-[hsl(var(--muted-foreground))]" /><input value={search} onChange={(event) => setSearch(event.target.value)} data-testid="input-audit-search" aria-label="Filter audit queue" placeholder="Filter users…" className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] py-2 pl-9 pr-3 text-[12px] outline-none transition-colors placeholder:text-[hsl(var(--muted-foreground)/.7)] focus:border-[hsl(var(--primary)/.5)] sm:w-48" /></div></div></div>{focusDate && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-[hsl(var(--primary)/.2)] bg-[hsl(var(--primary)/.06)] px-4 py-3 text-[12px]"><span>Showing audit exceptions for <strong>{formatDate(new Date(`${focusDate}T00:00:00`))}</strong>.</span><button type="button" onClick={onClearFocus} className="font-semibold text-[hsl(var(--primary))] hover:underline">Show all dates</button></div>}<div className="mb-5 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-[hsl(var(--accent)/.5)] bg-[hsl(var(--accent)/.1)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--accent-foreground))]">Threshold review</p><p className="mt-1 text-[13px] font-semibold">{numeric(over200.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">Daily credits above 200.</p></div><div className="rounded-lg border border-[hsl(var(--destructive)/.35)] bg-[hsl(var(--destructive)/.07)] px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[.12em] text-[hsl(var(--destructive))]">Policy review</p><p className="mt-1 text-[13px] font-semibold">{numeric(vendor.length)} flagged rows</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">VendorNoCredit users with usage.</p></div></div><div className="grid gap-5 xl:grid-cols-2"><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--accent))]" /><h3 className="text-[13px] font-semibold">Over 200 credits in a day</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{over200.length}</span></div><AuditTable testId="table-over-200" rows={over200} emptyText={search || foodcourt !== 'all' || focusDate ? 'No matching threshold exceptions.' : 'No users exceeded 200 credits.'} /></div><div><div className="mb-3 flex items-center gap-2"><div className="size-2 rounded-full bg-[hsl(var(--destructive))]" /><h3 className="text-[13px] font-semibold">VendorNoCredit with usage</h3><span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{vendor.length}</span></div><AuditTable testId="table-vendor-credit" rows={vendor} emptyText={search || foodcourt !== 'all' || focusDate ? 'No matching vendor exceptions.' : 'No VendorNoCredit users used credits.'} /></div></div></section>;
 }
 
 function WeekdaySection({ result }: { result: AnalysisResult }) {
@@ -673,9 +820,31 @@ function WeekdaySection({ result }: { result: AnalysisResult }) {
   </section>;
 }
 
-function SuccessView({ result, onJump }: { result: AnalysisResult; onJump: (target: string) => void }) {
+function SuccessView({ result, onJump, onDownload }: { result: AnalysisResult; onJump: (target: string) => void; onDownload: () => void }) {
   const [selectedFoodcourt, setSelectedFoodcourt] = useState('all');
-  return <main data-testid="status-success" className="mx-auto max-w-[1500px] px-5 pb-24 pt-10 md:px-12 md:pt-14"><Overview result={result} onJump={onJump} selectedFoodcourt={selectedFoodcourt} onFoodcourtChange={setSelectedFoodcourt} /><FoodcourtSection result={result} selectedFoodcourt={selectedFoodcourt} onFoodcourtChange={setSelectedFoodcourt} /><UsersSection result={result} /><AuditSection result={result} /><WeekdaySection result={result} /><div className="mt-14 flex flex-col justify-between gap-5 rounded-2xl bg-[hsl(var(--sidebar))] p-6 text-[hsl(var(--sidebar-foreground))] sm:flex-row sm:items-center md:p-8"><div><div className="flex items-center gap-2 text-[hsl(var(--accent))]"><ArrowDownToLine size={17} /><p className="font-mono text-[10px] uppercase tracking-[.18em]">Take it with you</p></div><h2 className="mt-3 font-display text-2xl font-bold tracking-[-.03em]">Your audit trail is ready.</h2><p className="mt-2 max-w-lg text-[13px] leading-5 text-[hsl(var(--sidebar-foreground)/.58)]">The workbook includes overall metrics plus separate foodcourt validation and audit sheets.</p></div><button type="button" onClick={() => onJump('download')} data-testid="button-download-footer" className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[hsl(var(--accent))] px-4 py-3 text-[13px] font-bold text-[hsl(var(--accent-foreground))] transition-transform hover:-translate-y-px">Download workbook <ArrowDownToLine size={15} /></button></div><div id="download" className="pt-6 text-center font-mono text-[10px] uppercase tracking-[.13em] text-[hsl(var(--muted-foreground))]">Processed locally · Nothing leaves this browser</div></main>;
+  const [auditFocusDate, setAuditFocusDate] = useState<string | null>(null);
+  const inspectDate = (dateKey: string) => {
+    setAuditFocusDate(dateKey);
+    window.requestAnimationFrame(() => onJump('audit-section'));
+  };
+  return <>
+    <nav aria-label="Analysis sections" className="sticky top-[78px] z-[9] border-b border-[hsl(var(--border))] bg-[hsl(var(--background)/.96)] backdrop-blur-xl md:hidden">
+      <div className="flex gap-1 overflow-x-auto px-3 py-2">
+        {navItems.map(({ key, label, icon: Icon, target }) => (
+          <a
+            key={key}
+            href={`#${target}`}
+            data-testid={`mobile-link-${key}`}
+            className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--primary)/.08)] hover:text-[hsl(var(--foreground))] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--primary))]"
+          >
+            <Icon size={15} />
+            <span>{label}</span>
+          </a>
+        ))}
+      </div>
+    </nav>
+    <main data-testid="status-success" className="mx-auto max-w-[1500px] px-5 pb-24 pt-10 md:px-12 md:pt-14"><Overview result={result} onJump={onJump} onInspectDate={inspectDate} selectedFoodcourt={selectedFoodcourt} onFoodcourtChange={setSelectedFoodcourt} /><FoodcourtSection result={result} selectedFoodcourt={selectedFoodcourt} onFoodcourtChange={setSelectedFoodcourt} /><UsersSection result={result} /><AuditSection result={result} focusDate={auditFocusDate} onClearFocus={() => setAuditFocusDate(null)} /><WeekdaySection result={result} /><div className="mt-14 flex flex-col justify-between gap-5 rounded-2xl bg-[hsl(var(--sidebar))] p-6 text-[hsl(var(--sidebar-foreground))] sm:flex-row sm:items-center md:p-8"><div><div className="flex items-center gap-2 text-[hsl(var(--accent))]"><ArrowDownToLine size={17} /><p className="font-mono text-[10px] uppercase tracking-[.18em]">Take it with you</p></div><h2 className="mt-3 font-display text-2xl font-bold tracking-[-.03em]">Your audit trail is ready.</h2><p className="mt-2 max-w-lg text-[13px] leading-5 text-[hsl(var(--sidebar-foreground)/.58)]">The workbook includes overall metrics plus separate foodcourt validation and audit sheets.</p></div><button type="button" onClick={onDownload} data-testid="button-download-footer" className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[hsl(var(--accent))] px-4 py-3 text-[13px] font-bold text-[hsl(var(--accent-foreground))] transition-transform hover:-translate-y-px">Download workbook <ArrowDownToLine size={15} /></button></div><div id="download" className="pt-6 text-center font-mono text-[10px] uppercase tracking-[.13em] text-[hsl(var(--muted-foreground))]">Processed locally · Nothing leaves this browser</div></main>
+  </>;
 }
 
 function Home() {
@@ -772,7 +941,7 @@ function Home() {
       {status === 'empty' && <div onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop} className={dragging ? 'bg-[hsl(var(--primary)/.04)]' : ''}><EmptyState onPick={() => inputRef.current?.click()} dragging={dragging} /></div>}
       {status === 'parsing' && filename && <ParsingState filename={filename} />}
       {status === 'invalid' && <InvalidState message={errorMessage} missingColumns={missingColumns} onRetry={() => { reset(); setTimeout(() => inputRef.current?.click(), 0); }} />}
-      {status === 'success' && result && <SuccessView result={result} onJump={jump} />}
+      {status === 'success' && result && <SuccessView result={result} onJump={jump} onDownload={download} />}
     </AppShell>
   );
 }
