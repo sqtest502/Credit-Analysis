@@ -1,7 +1,7 @@
 import { analyzeWorkbook, type AnalysisResult } from './analysis';
 
 type WorkerRequest = {
-  input: ArrayBuffer | string;
+  input: ArrayBuffer | string | File;
   format: 'excel' | 'csv';
   sourceName: string;
 };

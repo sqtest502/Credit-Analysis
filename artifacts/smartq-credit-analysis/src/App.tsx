@@ -66,7 +66,7 @@ const navItems: { key: ViewKey; label: string; icon: typeof Layers3; target: str
 
 const numeric = (value: number) => formatNumber(value);
 
-const analyzeInWorker = (input: ArrayBuffer | string, format: 'excel' | 'csv', sourceName: string) => new Promise<AnalysisResult>((resolve, reject) => {
+const analyzeInWorker = (input: ArrayBuffer | string | File, format: 'excel' | 'csv', sourceName: string) => new Promise<AnalysisResult>((resolve, reject) => {
   const worker = new Worker(new URL('./lib/analysis.worker.ts', import.meta.url), { type: 'module' });
   worker.onmessage = (event: MessageEvent<{ type: 'success'; result: AnalysisResult } | { type: 'error'; message: string; missingColumns: string[] }>) => {
     worker.terminate();
@@ -894,7 +894,7 @@ function Home() {
     try {
       const isCsv = hasCsvExtension || hasCsvMime;
       const analysis = await analyzeInWorker(
-        isCsv ? await file.text() : await file.arrayBuffer(),
+        isCsv ? file : await file.arrayBuffer(),
         isCsv ? 'csv' : 'excel',
         file.name,
       );

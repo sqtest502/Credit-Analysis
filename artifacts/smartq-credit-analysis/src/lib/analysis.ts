@@ -174,27 +174,111 @@ const cleanFoodcourt = (value: unknown) => {
 const toRows = (sheet: XLSX.WorkSheet) =>
   XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true });
 
+const isFileInput = (input: ArrayBuffer | string | File): input is File =>
+  typeof File !== 'undefined' && input instanceof File;
+
+const readCsvRows = async (input: string | File) => {
+  const reader = (typeof input === 'string' ? new Blob([input]) : input).stream().getReader();
+  const decoder = new TextDecoder();
+  const rows: Record<string, unknown>[] = [];
+  let headers: string[] | null = null;
+  let record: string[] = [];
+  let field = '';
+  let quoted = false;
+  let quotePending = false;
+  let skipLineFeed = false;
+
+  const appendRecord = () => {
+    record.push(field);
+    field = '';
+    if (!headers) {
+      const seen = new Map<string, number>();
+      headers = record.map((value, index) => {
+        const base = asCleanHeader(index === 0 ? value.replace(/^\uFEFF/, '') : value) || `__EMPTY`;
+        const count = seen.get(base) ?? 0;
+        seen.set(base, count + 1);
+        return count ? `${base}_${count}` : base;
+      });
+    } else if (record.some((value) => value !== '')) {
+      const row: Record<string, unknown> = {};
+      headers.forEach((header, index) => { row[header] = record[index] ?? null; });
+      rows.push(row);
+    }
+    record = [];
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      const chunk = done ? decoder.decode() : decoder.decode(value, { stream: true });
+      for (let index = 0; index < chunk.length; index += 1) {
+        const character = chunk[index];
+        if (skipLineFeed) {
+          skipLineFeed = false;
+          if (character === '\n') continue;
+        }
+        if (quotePending) {
+          quotePending = false;
+          if (character === '"') {
+            field += '"';
+            quoted = true;
+            continue;
+          }
+          quoted = false;
+        }
+        if (quoted) {
+          if (character === '"') quotePending = true;
+          else field += character;
+          continue;
+        }
+        if (character === '"' && field.length === 0) {
+          quoted = true;
+        } else if (character === ',') {
+          record.push(field);
+          field = '';
+        } else if (character === '\n' || character === '\r') {
+          appendRecord();
+          skipLineFeed = character === '\r';
+        } else {
+          field += character;
+        }
+      }
+      if (done) break;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (quoted && !quotePending) throw new AnalysisError('The CSV contains an unterminated quoted field.');
+  if (field.length || record.length) appendRecord();
+  if (!headers) throw new AnalysisError('The CSV file is empty or has no header row.');
+  return { headers, rows };
+};
+
 export const analyzeWorkbook = async (
-  input: ArrayBuffer | string,
+  input: ArrayBuffer | string | File,
   format: 'excel' | 'csv' = 'excel',
   sourceName = '',
 ): Promise<AnalysisResult> => {
-  const workbook = XLSX.read(input, {
-    type: format === 'csv' ? 'string' : 'array',
-    cellDates: true,
-    raw: true,
-  });
-  const orderLogSheetName = workbook.SheetNames.find((name) =>
-    name.trim().toLowerCase().startsWith('orderlog'),
-  );
-  const sourceSheetName = orderLogSheetName ?? workbook.SheetNames[0];
-  const sourceSheet = sourceSheetName ? workbook.Sheets[sourceSheetName] : undefined;
-  if (!sourceSheet) throw new AnalysisError('The workbook does not contain a readable worksheet.');
-
-  const sourceRows = toRows(sourceSheet);
-  const headerMatrix = XLSX.utils.sheet_to_json<unknown[]>(sourceSheet, { header: 1, defval: null, raw: true });
-  const rawHeaders = headerMatrix[0] ?? Object.keys(sourceRows[0] ?? {});
-  const headers = rawHeaders.map(asCleanHeader);
+  let sourceRows: Record<string, unknown>[];
+  let headers: string[];
+  if (format === 'csv') {
+    const parsed = await readCsvRows(typeof input === 'string' || isFileInput(input) ? input : new TextDecoder().decode(input));
+    sourceRows = parsed.rows;
+    headers = parsed.headers;
+  } else {
+    if (typeof input === 'string' || isFileInput(input)) throw new AnalysisError('Excel files must be provided as binary data.');
+    const workbook = XLSX.read(input, { type: 'array', cellDates: true, raw: true });
+    const orderLogSheetName = workbook.SheetNames.find((name) =>
+      name.trim().toLowerCase().startsWith('orderlog'),
+    );
+    const sourceSheetName = orderLogSheetName ?? workbook.SheetNames[0];
+    const sourceSheet = sourceSheetName ? workbook.Sheets[sourceSheetName] : undefined;
+    if (!sourceSheet) throw new AnalysisError('The workbook does not contain a readable worksheet.');
+    sourceRows = toRows(sourceSheet);
+    const headerMatrix = XLSX.utils.sheet_to_json<unknown[]>(sourceSheet, { header: 1, defval: null, raw: true });
+    headers = (headerMatrix[0] ?? Object.keys(sourceRows[0] ?? {})).map(asCleanHeader);
+  }
   const summaryUserColumn = headers.find((header) => header.toLowerCase() === 'email id');
   const summaryCreditsColumn = headers.find((header) => header.toLowerCase() === 'sum of points');
   const foodcourtColumn = findFoodcourtColumn(headers);
@@ -227,8 +311,10 @@ export const analyzeWorkbook = async (
   }
 
   const rawData: CleanRow[] = sourceRows.map((source) => {
-    const row: Record<string, unknown> = {};
-    Object.entries(source).forEach(([key, value]) => { row[asCleanHeader(key)] = value; });
+    const row: Record<string, unknown> = format === 'csv' ? source : {};
+    if (format !== 'csv') {
+      Object.entries(source).forEach(([key, value]) => { row[asCleanHeader(key)] = value; });
+    }
     const date = isSummary ? summaryDate : cleanDate(row.Date);
     row.User = String(isSummary ? row[summaryUserColumn!] : row.User ?? '').trim();
     row['User Type'] = String(row['User Type'] ?? '').trim();
